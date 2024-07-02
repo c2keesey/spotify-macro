@@ -12,7 +12,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 cache_path = os.path.join(script_dir, ".spotify_cache")
 
 # Define the required scopes
-scope = "user-read-currently-playing user-library-modify"
+scope = "user-read-currently-playing user-library-modify user-library-read"
 
 # Set up the Spotify client
 sp = spotipy.Spotify(
@@ -37,15 +37,21 @@ try:
         # Extract track ID
         track_id = current_track["item"]["id"]
 
-        # Add the track to the user's library
-        sp.current_user_saved_tracks_add([track_id])
+        # Check if the track is already in the user's liked songs
+        is_saved = sp.current_user_saved_tracks_contains([track_id])[0]
 
-        # Get track details for confirmation message
+        # Get track details for message
         artist = current_track["item"]["artists"][0]["name"]
         song = current_track["item"]["name"]
 
-        title = song
-        message = f"By {artist} -- Added to library"
+        if not is_saved:
+            # Add the track to the user's library
+            sp.current_user_saved_tracks_add([track_id])
+            title = f"{song} ♪ ♫ ♬"
+            message = f"By {artist} -- Added to library"
+        else:
+            title = "Already in your library  (^ヮ^)"
+            message = f"{song} By {artist}"
     else:
         title = "No Track Playing"
         message = "♫ ♪ (-_-) ♪ ♫ Zzz..."
