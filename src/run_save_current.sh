@@ -17,9 +17,17 @@ fi
 "$PYTHON_PATH" "$SCRIPT_PATH"
 
 if [ -f /tmp/spotify_add_result.txt ]; then
-    result=$(cat /tmp/spotify_add_result.txt)
-    osascript -e "display notification \"$result\" with title \"Spotify Add to Library\""
+    # Read the first line as title and the rest as message
+    title=$(head -n 1 /tmp/spotify_add_result.txt)
+    message=$(tail -n +2 /tmp/spotify_add_result.txt)
+    
+    osascript <<EOD
+    display notification "$message" with title "$title"
+EOD
+
     rm /tmp/spotify_add_result.txt
 else
-    osascript -e "display notification \"Error: Could not read result\" with title \"Spotify Add to Library\""
+    osascript <<EOD
+    display notification "Error: Could not read result" with title "Spotify Add to Library"
+EOD
 fi

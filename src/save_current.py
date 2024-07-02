@@ -44,14 +44,17 @@ try:
         artist = current_track["item"]["artists"][0]["name"]
         song = current_track["item"]["name"]
 
-        message = f"Added to your library: {song} by {artist}"
+        title = song
+        message = f"By {artist} -- Added to library"
     else:
-        message = "No track currently playing."
+        title = "No Track Playing"
+        message = "♫ ♪ (-_-) ♪ ♫ Zzz..."
 except Exception as e:
+    title = "Error"
     message = f"An error occurred: {str(e)}"
 
 # Write the result to a temporary file
 with open("/tmp/spotify_add_result.txt", "w") as f:
-    f.write(message)
+    f.write(f"{title}\n{message}")
 
-print(message)
+print(f"{title}\n{message}")
