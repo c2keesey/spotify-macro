@@ -13,8 +13,24 @@ else
     exit 1
 fi
 
+# Activate the virtual environment
+if [ -z "$VENV_PATH" ]; then
+    echo "Error: VENV_PATH is not set in .env file"
+    exit 1
+fi
+
+if [ ! -f "$VENV_PATH/bin/activate" ]; then
+    echo "Error: Virtual environment not found at $VENV_PATH"
+    exit 1
+fi
+
+source "$VENV_PATH/bin/activate"
+
 # Run the Python script
-"$PYTHON_PATH" "$SCRIPT_PATH"
+python "$SCRIPT_PATH"
+
+# Deactivate the virtual environment
+deactivate
 
 if [ -f /tmp/spotify_add_result.txt ]; then
     # Read the first line as title and the rest as message
