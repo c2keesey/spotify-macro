@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>AMApplicationBuild</key>
-	<string>523</string>
+	<string>526</string>
 	<key>AMApplicationVersion</key>
 	<string>2.10</string>
 	<key>AMDocumentVersion</key>
@@ -169,8 +169,6 @@
 						<string>4</string>
 					</dict>
 				</dict>
-				<key>conversionLabel</key>
-				<integer>0</integer>
 				<key>isViewVisible</key>
 				<integer>1</integer>
 				<key>location</key>
@@ -278,7 +276,7 @@
 		<key>backgroundColorName</key>
 		<string>systemGreenColor</string>
 		<key>inputTypeIdentifier</key>
-		<string>com.apple.Automator.text</string>
+		<string>com.apple.Automator.nothing</string>
 		<key>outputTypeIdentifier</key>
 		<string>com.apple.Automator.nothing</string>
 		<key>presentationMode</key>
@@ -286,7 +284,7 @@
 		<key>processesInput</key>
 		<false/>
 		<key>serviceInputTypeIdentifier</key>
-		<string>com.apple.Automator.text</string>
+		<string>com.apple.Automator.nothing</string>
 		<key>serviceOutputTypeIdentifier</key>
 		<string>com.apple.Automator.nothing</string>
 		<key>serviceProcessesInput</key>
@@ -294,7 +292,7 @@
 		<key>systemImageName</key>
 		<string>NSActionTemplate</string>
 		<key>useAutomaticInputType</key>
-		<true/>
+		<false/>
 		<key>workflowTypeIdentifier</key>
 		<string>com.apple.Automator.servicesMenu</string>
 	</dict>
