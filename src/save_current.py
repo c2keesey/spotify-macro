@@ -47,13 +47,13 @@ try:
         if not is_saved:
             # Add the track to the user's library
             sp.current_user_saved_tracks_add([track_id])
-            title = f"{song} ♪ ♫ ♬"
+            title = f"✅ {song} ♪ ♫ ♬"
             message = f"By {artist} -- Added to library"
         else:
             title = "Already in your library  (^ヮ^)"
             message = f"{song} By {artist}"
     else:
-        title = "No Track Playing"
+        title = "❌ No Track Playing"
         message = "♫ ♪ (-_-) ♪ ♫ Zzz..."
 except Exception as e:
     title = "Error"
