@@ -1,4 +1,8 @@
-**.spotify_cache
+.DS_Store
+
+__pycache__/
+
+**/.spotify*
 
 # C extensions
 *.so

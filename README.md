@@ -1,72 +1,183 @@
-# Spotify Add to Library Macro
+# macOS Automations
 
-This project provides a quick and easy way to add the currently playing Spotify track to your library using a keyboard shortcut on macOS.
+A collection of macOS automations and macros to enhance productivity and add useful features.
+
+## Overview
+
+This project provides a structured framework for creating and using various automations on macOS.
+It currently includes:
+
+- **Spotify Add to Library**: Save the currently playing Spotify track to your library with a keyboard shortcut
+- **Spotify Daily Liked Songs**: Automatically add songs liked in the last 24 hours to a specified playlist
+
+The modular design makes it easy to add new automations while maintaining a consistent structure.
 
 ## Features
 
-- Add the currently playing Spotify track to your library with a single keyboard shortcut
-- Displays a notification with the added song's details
-- Maintains authentication between uses
+- Modular, extensible framework for creating new automations
+- Integration with macOS Automator for keyboard shortcuts
+- Desktop notifications
+- Modern Python package structure using UV package manager
 
 ## Prerequisites
 
 - macOS
-- Python 3.12 or later
-- Spotify Premium account
-- Spotify Developer account
+- Python 3.7 or later
+- UV package manager (https://github.com/astral-sh/uv)
+- Specific requirements for individual automations (e.g., Spotify Premium account)
 
 ## Setup
 
 1. Clone this repository:
-   git clone https://github.com/yourusername/spotify-macro.git
-   cd spotify-macro
 
-2. Install required Python packages:
-   pip3 install spotipy python-dotenv
+   ```
+   git clone https://github.com/yourusername/macos-automations.git
+   cd macos-automations
+   ```
 
-3. Create a Spotify App:
+2. Install UV if you don't have it already:
+
+   ```
+   curl -fsSL https://astral.sh/uv/install.sh | bash
+   ```
+
+3. Set up the virtual environment and install dependencies:
+
+   ```
+   uv venv
+   uv pip install -r requirements.txt
+   ```
+
+4. Configure any specific requirements for automations you want to use (see below)
+
+## Available Automations
+
+### Spotify Add to Library
+
+Save the currently playing Spotify track to your library with a keyboard shortcut.
+
+#### Setup
+
+1. Create a Spotify App:
 
    - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
    - Click "Create an App"
    - Set the Redirect URI to http://localhost:8888/callback
 
-4. Create a .env file in the project root with your Spotify App credentials and paths:
+2. Create a `.env` file in the project root with your Spotify App credentials:
+
+   ```
    CLIENT_ID=your_client_id_here
    CLIENT_SECRET=your_client_secret_here
-   PYTHON_PATH=/path/to/your/python
-   SCRIPT_PATH=/path/to/your/project/src/save_current.py
+   VENV_PATH=/path/to/your/project/.venv
+   ```
 
-   Replace the PYTHON_PATH with the path to your Python 3.12 installation (e.g., /Library/Frameworks/Python.framework/Versions/3.12/bin/python3)
-   The SCRIPT_PATH should be the full path to the save_current.py script in your src directory
+3. Follow the instructions in `workflows/spotify_save_current.md` to set up the Automator workflow and keyboard shortcut
+
+### Spotify Daily Liked Songs
+
+Automatically add songs liked in the last 24 hours to a specified playlist.
+
+#### Setup
+
+1. Ensure you've created a Spotify App as described above.
+
+2. Run the script manually to authenticate and create the playlist:
+
+   ```
+   ./scripts/run_spotify_daily_liked.sh
+   ```
+
+3. Follow the instructions in `workflows/spotify_daily_liked.md` to set up automatic daily execution
+
+## Creating a New Automation
+
+To create a new automation:
+
+1. Copy the template directory structure:
+
+   ```
+   cp -r macros/template macros/your_new_automation
+   ```
+
+2. Copy the template shell script:
+
+   ```
+   cp scripts/template.sh scripts/run_your_new_automation.sh
+   ```
+
+3. Implement your automation logic in `macros/your_new_automation/action.py`
+
+4. Update the shell script to use your new module path
 
 5. Make the shell script executable:
-   chmod +x src/run_spotify_macro.sh
 
-6. Set up the Automator Quick Action:
+   ```
+   chmod +x scripts/run_your_new_automation.sh
+   ```
 
-   - Open Automator and create a new Quick Action
-   - Add a "Run Shell Script" action
-   - In the shell script box, add:
-     /Users/yourusername/path/to/spotify-macro/src/run_spotify_macro.sh
-   - Save the Quick Action with a name like "Add Spotify Song to Library"
+6. Create documentation in the workflows directory
 
-7. Assign a keyboard shortcut:
-   - Open System Settings > Keyboard > Keyboard Shortcuts
-   - Select "Services" or "Quick Actions" from the left sidebar
-   - Find your "Add Spotify Song to Library" action
-   - Click on "add shortcut" and press your desired key combination (e.g., Command + Shift + A)
+7. Update this README if needed
 
-## Usage
+## Project Structure
 
-1. Play a song on Spotify
-2. Press your assigned keyboard shortcut
-3. The song will be added to your library, and you'll see a notification confirming the action
+```
+macos-automations/
+├── common/               # Shared utilities and helpers
+│   ├── config.py         # Configuration management
+│   └── utils/            # Utility functions
+│       └── notifications.py  # Notification utilities
+├── macros/               # Individual automation modules
+│   ├── spotify/          # Spotify-related automations
+│   │   └── save_current.py   # Save current track to library
+│   └── template/         # Template for new automations
+├── scripts/              # Shell scripts for running automations
+│   ├── run_spotify_save.sh   # Run the Spotify save automation
+│   └── template.sh       # Template shell script
+├── workflows/            # Documentation for Automator workflows
+│   ├── launchagents/     # Template plist files for LaunchAgents
+│   ├── spotify_save_current.md  # Setup guide for Spotify workflow
+│   └── spotify_daily_liked.md   # Setup guide for Daily Liked Songs
+├── .env                  # Environment variables (create this)
+├── pyproject.toml        # Project configuration
+└── requirements.txt      # Python dependencies
+```
 
-## Troubleshooting
+## Environment Variables
 
-- If you encounter permission issues, ensure the Python script and shell script have the correct permissions
-- Check that the paths in your .env file are correct
-- Ensure your Spotify Developer App has the correct Redirect URI set
+Create a `.env` file in the root directory with the following variables:
+
+```
+# Required
+CLIENT_ID=your_spotify_client_id
+CLIENT_SECRET=your_spotify_client_secret
+
+# Optional
+VENV_PATH=/path/to/your/virtual/environment
+PYTHON_PATH=/path/to/python/executable
+
+# Spotify Daily Liked Songs (optional)
+# Use either DAILY_LIKED_PLAYLIST_ID to specify a particular playlist by ID
+DAILY_LIKED_PLAYLIST_ID=your_playlist_id
+# Or specify a playlist name - the script will find it or create it if needed
+DAILY_LIKED_PLAYLIST_NAME=Your Custom Playlist Name
+```
+
+## Running from Command Line
+
+In addition to using Automator workflows with keyboard shortcuts, you can run any automation directly from the command line:
+
+```
+# Using the shell script
+./scripts/run_spotify_save.sh
+
+# Using Python directly
+python -m macros.spotify.save_current
+
+# Using the installed entry point (if available)
+save-spotify-track
+```
 
 ## Contributing
 

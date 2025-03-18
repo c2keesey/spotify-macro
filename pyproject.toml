@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "macos-automations"
+version = "0.1.0"
+description = "Collection of macOS automations and macros"
+readme = "README.md"
+requires-python = ">=3.7"
+license = { file = "LICENSE" }
+authors = [
+    { name = "macOS Automations Author" }
+]
+dependencies = [
+    "certifi==2024.6.2",
+    "charset-normalizer==3.3.2",
+    "idna==3.7",
+    "python-dotenv==1.0.1",
+    "redis==5.0.7",
+    "requests==2.32.3",
+    "spotipy==2.24.0",
+    "urllib3==2.2.2",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/username/macos-automations"
+
+[tool.setuptools]
+packages = ["macros", "common"]
+
+[project.scripts]
+save-spotify-track = "macros.spotify.save_current:main"

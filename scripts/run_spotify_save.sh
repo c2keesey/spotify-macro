@@ -15,8 +15,8 @@ fi
 
 # Activate the virtual environment
 if [ -z "$VENV_PATH" ]; then
-    echo "Error: VENV_PATH is not set in .env file"
-    exit 1
+    VENV_PATH="$PROJECT_ROOT/.venv"
+    echo "VENV_PATH not set in .env file, using default: $VENV_PATH"
 fi
 
 if [ ! -f "$VENV_PATH/bin/activate" ]; then
@@ -26,24 +26,26 @@ fi
 
 source "$VENV_PATH/bin/activate"
 
-# Run the Python script
-python "$SCRIPT_PATH"
+# Run the Python script - using the module path instead of a direct file path
+python -m macros.spotify.save_current
 
 # Deactivate the virtual environment
 deactivate
 
-if [ -f /tmp/spotify_add_result.txt ]; then
+# Display notification from the temporary file
+NOTIFICATION_FILE="/tmp/spotify_add_result.txt"
+if [ -f "$NOTIFICATION_FILE" ]; then
     # Read the first line as title and the rest as message
-    title=$(head -n 1 /tmp/spotify_add_result.txt)
-    message=$(tail -n +2 /tmp/spotify_add_result.txt)
+    title=$(head -n 1 "$NOTIFICATION_FILE")
+    message=$(tail -n +2 "$NOTIFICATION_FILE")
     
     osascript <<EOD
     display notification "$message" with title "$title"
 EOD
 
-    rm /tmp/spotify_add_result.txt
+    rm "$NOTIFICATION_FILE"
 else
     osascript <<EOD
     display notification "Error: Could not read result" with title "Spotify Add to Library"
 EOD
-fi
+fi 
