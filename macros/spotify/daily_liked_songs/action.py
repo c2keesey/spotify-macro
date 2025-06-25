@@ -7,15 +7,8 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-
-from common.config import (
-    CLIENT_ID,
-    CLIENT_SECRET,
-    DAILY_LIKED_PLAYLIST_ID,
-    DAILY_LIKED_PLAYLIST_NAME,
-)
+from common.config import DAILY_LIKED_PLAYLIST_ID, DAILY_LIKED_PLAYLIST_NAME
+from common.spotify_utils import initialize_spotify_client
 from common.utils.notifications import send_notification_via_file
 
 
@@ -104,26 +97,11 @@ def run_action():
     Returns:
         tuple: (title, message) notification information
     """
-    # Set up the cache file path - using a separate cache file for this functionality
-    cache_path = Path(__file__).parent.parent / ".spotify_daily_liked_cache"
-
     # Define the required scopes
     scope = "user-library-read playlist-modify-private playlist-read-private user-read-private playlist-modify-public"
 
-    # Set up the Spotify client
-    sp = spotipy.Spotify(
-        auth_manager=SpotifyOAuth(
-            scope=scope,
-            client_id=CLIENT_ID,
-            client_secret=CLIENT_SECRET,
-            redirect_uri="http://localhost:8888/callback",
-            cache_path=str(cache_path),
-        )
-    )
-
-    # Ensure the cache file has the correct permissions if it exists
-    if cache_path.exists():
-        os.chmod(cache_path, 0o600)
+    # Set up the Spotify client using the new utilities
+    sp = initialize_spotify_client(scope, "daily_liked_cache")
 
     try:
         # Get the playlist ID

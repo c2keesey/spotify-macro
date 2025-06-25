@@ -13,8 +13,18 @@ MACROS_DIR = PROJECT_ROOT / "macros"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 WORKFLOWS_DIR = PROJECT_ROOT / "workflows"
 
-# Load environment variables from .env file
-load_dotenv(PROJECT_ROOT / ".env")
+# Determine which environment to load
+SPOTIFY_ENV = os.environ.get("SPOTIFY_ENV", "prod")
+
+# Load environment-specific configuration
+env_file = PROJECT_ROOT / f".env.{SPOTIFY_ENV}"
+if env_file.exists():
+    load_dotenv(env_file)
+    print(f"Loaded environment: {SPOTIFY_ENV}")
+else:
+    # Fall back to default .env file
+    load_dotenv(PROJECT_ROOT / ".env")
+    print(f"Using default .env (environment '{SPOTIFY_ENV}' not found)")
 
 
 def get_env(key, default=None):
@@ -26,6 +36,9 @@ def get_env(key, default=None):
 CLIENT_ID = get_env("CLIENT_ID")
 CLIENT_SECRET = get_env("CLIENT_SECRET")
 VENV_PATH = get_env("VENV_PATH", str(PROJECT_ROOT / ".venv"))
+
+# Export environment for use by other modules
+CURRENT_ENV = SPOTIFY_ENV
 
 # Ensure paths are initialized as strings in env
 if not get_env("VENV_PATH"):

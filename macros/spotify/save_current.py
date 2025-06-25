@@ -2,13 +2,7 @@
 Module to save the currently playing Spotify track to the user's library.
 """
 
-import os
-from pathlib import Path
-
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-
-from common.config import CLIENT_ID, CLIENT_SECRET
+from common.spotify_utils import initialize_spotify_client
 from common.utils.notifications import send_notification_via_file
 
 
@@ -19,26 +13,11 @@ def save_current_track():
     Returns:
         tuple: (title, message) notification information
     """
-    # Set up the cache file path
-    cache_path = Path(__file__).parent / ".spotify_cache"
-
     # Define the required scopes
     scope = "user-read-currently-playing user-library-modify user-library-read"
 
-    # Set up the Spotify client
-    sp = spotipy.Spotify(
-        auth_manager=SpotifyOAuth(
-            scope=scope,
-            client_id=CLIENT_ID,
-            client_secret=CLIENT_SECRET,
-            redirect_uri="http://localhost:8888/callback",
-            cache_path=str(cache_path),
-        )
-    )
-
-    # Ensure the cache file has the correct permissions if it exists
-    if cache_path.exists():
-        os.chmod(cache_path, 0o600)
+    # Set up the Spotify client using the new utilities
+    sp = initialize_spotify_client(scope, "save_current_cache")
 
     try:
         # Get the currently playing track

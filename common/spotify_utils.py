@@ -6,7 +6,7 @@ from pathlib import Path
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
-from common.config import CLIENT_ID, CLIENT_SECRET
+from common.config import CLIENT_ID, CLIENT_SECRET, CURRENT_ENV
 
 # Configure basic logging - assuming this might be useful for the utils too
 # If not, this can be removed and logging can be handled by the calling modules
@@ -100,8 +100,8 @@ def spotify_api_call_with_retry(api_call_func, *args, **kwargs):
 def initialize_spotify_client(scope: str, cache_name: str = "default_spotify_cache"):
     """Initialize and return a Spotipy client."""
     # Cache path will be in the same directory as this utils file (common/)
-    # and named based on the cache_name parameter.
-    cache_path = Path(__file__).parent / f".{cache_name}"
+    # and named based on the cache_name parameter and current environment.
+    cache_path = Path(__file__).parent / f".{cache_name}_{CURRENT_ENV}"
 
     auth_manager = SpotifyOAuth(
         client_id=CLIENT_ID,
