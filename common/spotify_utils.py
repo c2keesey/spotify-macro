@@ -14,9 +14,9 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-MAX_RETRIES = 5
-INITIAL_BACKOFF_SECONDS = 2
-MAX_BACKOFF_SECONDS = 60
+MAX_RETRIES = 8  # Increased for high-volume scenarios
+INITIAL_BACKOFF_SECONDS = 1  # Start lower for better throughput
+MAX_BACKOFF_SECONDS = 300  # Increased to 5 minutes for severe rate limiting
 
 
 def spotify_api_call_with_retry(api_call_func, *args, **kwargs):
@@ -106,7 +106,7 @@ def initialize_spotify_client(scope: str, cache_name: str = "default_spotify_cac
     auth_manager = SpotifyOAuth(
         client_id=CLIENT_ID,
         client_secret=CLIENT_SECRET,
-        redirect_uri="http://localhost:8888/callback",
+        redirect_uri="http://127.0.0.1:8889/callback" if CURRENT_ENV == "test" else "http://127.0.0.1:8888/callback",
         scope=scope,
         cache_path=str(cache_path),
     )

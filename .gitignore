@@ -1,11 +1,17 @@
 _data/
-**/*_cache
+**/*_cache*
+*.json
 
 .DS_Store
 
 __pycache__/
 
 **/.spotify*
+
+# Generated files
+*.csv
+*.png
+logs/
 
 # C extensions
 *.so

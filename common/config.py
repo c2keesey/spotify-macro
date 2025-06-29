@@ -47,3 +47,10 @@ if not get_env("VENV_PATH"):
 # Spotify Daily Liked Songs Configuration
 DAILY_LIKED_PLAYLIST_ID = get_env("DAILY_LIKED_PLAYLIST_ID")
 DAILY_LIKED_PLAYLIST_NAME = get_env("DAILY_LIKED_PLAYLIST_NAME", "Daily Liked Songs")
+
+# Spotify Playlist Flow Configuration
+PLAYLIST_FLOW_ENABLED = get_env("PLAYLIST_FLOW_ENABLED", "true").lower() == "true"
+PLAYLIST_FLOW_SPECIAL_CHARS = get_env("PLAYLIST_FLOW_SPECIAL_CHARS", "♪♫♬♩♭♯♮🎵🎶⚡◆◇★☆♦♥♠♣❇️✅♻️🔱💠")
+PLAYLIST_FLOW_SKIP_CYCLES = get_env("PLAYLIST_FLOW_SKIP_CYCLES", "true").lower() == "true"
+PLAYLIST_FLOW_CACHE_TTL_HOURS = int(get_env("PLAYLIST_FLOW_CACHE_TTL_HOURS", "24"))
+PLAYLIST_FLOW_USE_CACHE = get_env("PLAYLIST_FLOW_USE_CACHE", "true").lower() == "true"
