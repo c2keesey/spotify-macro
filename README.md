@@ -8,7 +8,9 @@ This project provides a structured framework for creating and using various auto
 It currently includes:
 
 - **Spotify Add to Library**: Save the currently playing Spotify track to your library with a keyboard shortcut
+- **Spotify Genre Classification**: Save tracks with automatic genre-based playlist organization using hybrid AI classification
 - **Spotify Daily Liked Songs**: Automatically add songs liked in the last 24 hours to a specified playlist
+- **Spotify Playlist Flow**: Automatically flow songs between playlists using special naming conventions
 
 The modular design makes it easy to add new automations while maintaining a consistent structure.
 
@@ -74,6 +76,29 @@ Save the currently playing Spotify track to your library with a keyboard shortcu
 
 3. Follow the instructions in `workflows/spotify_save_current.md` to set up the Automator workflow and keyboard shortcut
 
+### Spotify Genre Classification
+
+Save tracks with automatic genre-based playlist organization using hybrid AI classification.
+
+#### Features
+
+- **Hybrid Classification**: Combines artist patterns, audio features, and genre data for 76% accuracy
+- **Electronic Music Specialist**: Optimized for electronic sub-genres (House, Techno, Bass, etc.)
+- **5x Precision Improvement**: 63.4% precision vs. 12% in basic systems
+- **Folder-based Organization**: Automatically sorts into genre-specific playlist folders
+
+#### Setup
+
+1. Ensure you've created a Spotify App as described above.
+
+2. Run the genre classification system:
+
+   ```
+   ./scripts/run_spotify_genre_save.sh
+   ```
+
+3. See `docs/genre_classification_research_findings.md` for detailed research and implementation notes
+
 ### Spotify Daily Liked Songs
 
 Automatically add songs liked in the last 24 hours to a specified playlist.
@@ -89,6 +114,29 @@ Automatically add songs liked in the last 24 hours to a specified playlist.
    ```
 
 3. Follow the instructions in `workflows/spotify_daily_liked.md` to set up automatic daily execution
+
+### Spotify Playlist Flow
+
+Automatically flow songs between playlists using special naming conventions.
+
+#### Features
+
+- **Parent/Child Relationships**: Playlists ending with `>` flow to playlists starting with `<`
+- **Cycle Detection**: Prevents infinite loops in playlist relationships
+- **Unicode Support**: Handles special characters and emojis in playlist names
+- **Performance Optimized**: Efficient processing of large playlist collections
+
+#### Setup
+
+1. Ensure you've created a Spotify App as described above.
+
+2. Run the playlist flow automation:
+
+   ```
+   ./scripts/run_spotify_playlist_flow.sh
+   ```
+
+3. See `CLAUDE.md` for detailed playlist flow feature documentation
 
 ## Creating a New Automation
 

@@ -98,41 +98,69 @@ def spotify_api_call_with_retry(api_call_func, *args, **kwargs):
 
 
 def initialize_spotify_client(scope: str, cache_name: str = "default_spotify_cache"):
-    """Initialize and return a Spotipy client."""
-    # Cache path will be in the same directory as this utils file (common/)
-    # and named based on the cache_name parameter and current environment.
-    cache_path = Path(__file__).parent / f".{cache_name}_{CURRENT_ENV}"
+    """
+    Initialize and return a Spotipy client using unified authentication.
+    
+    NOTE: cache_name is deprecated - all automations now share the same cache
+    to avoid authentication fragmentation. Use scripts/spotify_auth.py for auth.
+    """
+    # UNIFIED CACHE: All automations share the same master cache
+    # This eliminates OAuth fragmentation between different automations
+    master_cache_path = Path(__file__).parent / f".spotify_master_cache_{CURRENT_ENV}"
+    
+    # Superset of all scopes used by any automation to ensure compatibility
+    master_scopes = " ".join([
+        "user-read-private",
+        "user-library-read", 
+        "user-library-modify",
+        "user-read-currently-playing",
+        "playlist-read-private",
+        "playlist-read-collaborative",
+        "playlist-modify-private", 
+        "playlist-modify-public",
+        "user-top-read",
+        "user-read-recently-played"
+    ])
+    
+    # Check if requested scope is covered by master scopes
+    requested_scopes = set(scope.split())
+    available_scopes = set(master_scopes.split())
+    
+    if not requested_scopes.issubset(available_scopes):
+        missing_scopes = requested_scopes - available_scopes
+        logging.warning(f"Requested scopes not in master scope set: {missing_scopes}")
+        logging.warning(f"You may need to re-authenticate with: SPOTIFY_ENV={CURRENT_ENV} uv run python scripts/spotify_auth.py auth")
 
     auth_manager = SpotifyOAuth(
         client_id=CLIENT_ID,
         client_secret=CLIENT_SECRET,
         redirect_uri="http://127.0.0.1:8889/callback" if CURRENT_ENV == "test" else "http://127.0.0.1:8888/callback",
-        scope=scope,
-        cache_path=str(cache_path),
+        scope=master_scopes,  # Always use master scopes for compatibility
+        cache_path=str(master_cache_path),
     )
 
     # Ensure the cache file has secure permissions if it exists, or after creation.
     # This check needs to be done carefully, especially if spotipy creates the file.
-    if cache_path.exists():
+    if master_cache_path.exists():
         try:
             # Attempt to set permissions if they are not already 0o600
-            if not (os.stat(cache_path).st_mode & 0o600 == 0o600):
-                os.chmod(cache_path, 0o600)
+            if not (os.stat(master_cache_path).st_mode & 0o600 == 0o600):
+                os.chmod(master_cache_path, 0o600)
         except OSError as e:
             logging.warning(
-                f"Could not set permissions on cache file {cache_path}: {e}"
+                f"Could not set permissions on master cache file {master_cache_path}: {e}"
             )
 
     sp = spotipy.Spotify(auth_manager=auth_manager)
 
     # After Spotipy might have created the cache, ensure permissions are correct again.
-    if cache_path.exists() and not (os.stat(cache_path).st_mode & 0o600 == 0o600):
+    if master_cache_path.exists() and not (os.stat(master_cache_path).st_mode & 0o600 == 0o600):
         try:
-            os.chmod(cache_path, 0o600)
-            logging.info(f"Set permissions for cache file: {cache_path}")
+            os.chmod(master_cache_path, 0o600)
+            logging.info(f"Set permissions for master cache file: {master_cache_path}")
         except OSError as e:
             logging.warning(
-                f"Could not set permissions on newly created cache file {cache_path}: {e}. Please check manually."
+                f"Could not set permissions on newly created master cache file {master_cache_path}: {e}. Please check manually."
             )
 
     return sp

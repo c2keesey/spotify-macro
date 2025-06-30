@@ -19,7 +19,9 @@ The project uses a modular design with three main components:
 - Each automation is a self-contained module in its own directory
 - Current automations:
   - `spotify/save_current.py`: Save currently playing track to library
+  - `spotify/save_current_with_genre.py`: Save currently playing track and automatically sort into genre-specific playlists
   - `spotify/daily_liked_songs/action.py`: Add recently liked songs to a playlist
+  - `spotify/playlist_flow/action.py`: Automatically flow songs between playlists using special naming conventions
 - `template/`: Template structure for creating new automations
 
 ### 3. Data Processing (`download/`)
@@ -85,11 +87,15 @@ SPOTIFY_ENV=test uv run python -m pytest tests/test_playlist_flow.py -k "self_re
 ```bash
 # Direct Python execution
 python -m macros.spotify.save_current
+python -m macros.spotify.save_current_with_genre
 python -m macros.spotify.daily_liked_songs.action
+python -m macros.spotify.playlist_flow.action
 
 # Using shell scripts (recommended for production)
 ./scripts/run_spotify_save.sh
+./scripts/run_spotify_genre_save.sh
 ./scripts/run_spotify_daily_liked.sh
+./scripts/run_spotify_playlist_flow.sh
 
 # Using installed entry points
 save-spotify-track
@@ -144,6 +150,11 @@ DAILY_LIKED_PLAYLIST_NAME=Your Playlist Name
 - Failures are logged and communicated via notifications
 - Robust handling of missing tracks, deleted playlists, and API errors
 
+### Authentication & Cache Management
+- **Cache Sharing Issue**: Different automations create separate cache files (e.g., `.playlist_flow_cache_test`, `.save_current_cache_test`)
+- **Manual Re-auth**: When developing new features, you may need to re-authenticate via browser when cache names don't match
+- **Recommendation**: Use existing cache names when possible, or plan for manual OAuth flow during development
+
 ## Creating New Automations
 
 1. Copy the template structure: `cp -r macros/template macros/your_automation`
@@ -158,12 +169,64 @@ The project uses UV for Python package management and supports both pip and UV w
 
 ## Best Practices and Guidelines
 
+- **Safe Defaults**: All genre classification automatically defaults to test environment with mock client
+- **Environment Control**: Use `SPOTIFY_ENV=prod` to explicitly use production Spotify API
+- **Default Behavior**: Without environment override, uses mock client with production data snapshot
 - Run all scripts through test env unless otherwise specified
 
 ## Development Tips
 
 - Use make targets to run tests
 
+## Playlist Flow Feature
+
+The playlist flow automation uses special characters in playlist names to create parent-child relationships:
+
+- **Parent playlists**: Names ending with `>` (e.g., "Rock>")
+- **Child playlists**: Names starting with `<` (e.g., "<Rock Favorites")  
+- **Self-referencing**: Names with both `<` and `>` (e.g., "<Pop> Hits")
+
+The system automatically moves songs from parent playlists to their children, with comprehensive cycle detection, Unicode support, and performance optimization for large playlist collections.
+
+## Genre Classification Feature
+
+The genre classification system automatically sorts saved songs into genre-specific playlists using folder naming conventions and hybrid classification:
+
+### Folder Naming Convention
+- **Format**: `[Genre] PlaylistName [FlowChars]`
+- **Examples**: 
+  - `[Rock] Collection 🎵` - Rock folder, parent playlist
+  - `[Electronic] Daily Finds 🎵` - Electronic folder, child flows to parent
+  - `[Jazz] Favorites` - Jazz folder, standalone playlist
+
+### Classification System
+- **Primary**: Artist genres from Spotify API
+- **Secondary**: Audio features analysis (danceability, energy, valence, etc.)
+- **Hybrid approach**: Uses artist genres first, falls back to audio features
+- **Configurable**: Genre mappings can be customized via environment variables
+
+### Supported Genres
+Default mappings include Rock, Electronic, Jazz, Pop, Hip Hop, Country, R&B, and Classical with appropriate genre keywords and audio feature profiles.
+
+### Usage
+```bash
+# Save current track with genre classification (uses safe defaults)
+python -m macros.spotify.save_current_with_genre
+
+# Test classification safely with mock data
+python test_safe_genre_save.py
+
+# Use production Spotify API (requires explicit environment)
+SPOTIFY_ENV=prod python -m macros.spotify.save_current_with_genre
+
+# Test classification on specific track
+python -m macros.spotify.save_current_with_genre test [track_id]
+
+# Run complete test workflow
+python test_genre_save.py
+```
+
 ## Current Focus
 
-- Currently only working on playlist flow feature
+- Genre classification system is now fully implemented with comprehensive testing
+- Playlist flow system is fully implemented with comprehensive testing

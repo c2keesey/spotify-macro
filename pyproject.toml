@@ -17,6 +17,7 @@ dependencies = [
     "charset-normalizer==3.3.2",
     "grapheme>=0.6.0",
     "idna==3.7",
+    "musicbrainzngs>=0.7.1",
     "python-dotenv==1.0.1",
     "redis==5.0.7",
     "regex>=2023.0.0",

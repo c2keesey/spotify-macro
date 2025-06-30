@@ -21,6 +21,31 @@ OPERATION_TIMEOUT = 300  # 5 minutes total timeout
 BATCH_TIMEOUT = 60  # 1 minute per batch timeout
 
 
+def extract_folder_and_flow(playlist_name: str) -> Tuple[Optional[str], List[str], List[str]]:
+    """
+    Extract folder name and flow characters from playlist name.
+    
+    Supports both folder naming convention [Genre] and flow characters.
+    
+    Args:
+        playlist_name: Name of the playlist
+        
+    Returns:
+        Tuple of (folder_name, parent_chars, child_chars) where:
+        - folder_name: Genre extracted from [Genre] brackets, None if not found
+        - parent_chars: Special chars before normal letters (flow parent indicators)
+        - child_chars: Special chars after normal letters (flow child indicators)
+    """
+    # First extract folder from brackets
+    folder_match = re.search(r'\[([^\]]+)\]', playlist_name)
+    folder_name = folder_match.group(1) if folder_match else None
+    
+    # Then extract flow characters using existing logic
+    parent_chars, child_chars = extract_flow_characters(playlist_name)
+    
+    return folder_name, parent_chars, child_chars
+
+
 def extract_flow_characters(playlist_name: str) -> Tuple[List[str], List[str]]:
     """
     Extract special characters from playlist name that indicate flow relationships.
