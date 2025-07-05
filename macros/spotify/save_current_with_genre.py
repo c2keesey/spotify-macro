@@ -9,6 +9,7 @@ from typing import List, Tuple
 from common.spotify_utils import initialize_spotify_client
 from common.utils.notifications import send_notification_via_file
 from common.genre_classification_utils import classify_track, add_track_to_genre_playlists, get_safe_spotify_client
+from common.telegram_utils import SpotifyTelegramNotifier
 from common.config import (
     GENRE_CLASSIFICATION_ENABLED, 
     GENRE_CLASSIFICATION_FALLBACK_PLAYLIST,
@@ -24,6 +25,9 @@ def save_current_track_with_genre():
     Returns:
         tuple: (title, message) notification information
     """
+    # Initialize Telegram notifier
+    telegram = SpotifyTelegramNotifier("Save Current Track with Genre")
+    
     # Define the required scopes (includes playlist modification for genre sorting)
     scope = "user-read-currently-playing user-library-modify user-library-read playlist-modify-public playlist-modify-private playlist-read-private"
 
@@ -85,14 +89,23 @@ def save_current_track_with_genre():
             if genre_results:
                 message_parts.extend(genre_results)
             message = "\n".join(message_parts)
+            
+            # Send Telegram notification
+            details = f"By {artist}\n{chr(10).join(genre_results)}" if genre_results else f"By {artist}"
+            if not is_saved:
+                telegram.send_success(f"Added '{song}' to library with genre sorting", details)
+            else:
+                telegram.send_info(f"'{song}' already in library, processed genre sorting", details)
 
         else:
             title = "❌ No Track Playing"
             message = "♫ ♪ (-_-) ♪ ♫ Zzz..."
+            telegram.send_info("No track currently playing", "Start playing a song on Spotify")
             
     except Exception as e:
         title = "Error"
         message = f"An error occurred: {str(e)}"
+        telegram.send_error("Failed to save current track with genre", str(e))
 
     # Write the result to a temporary file for shell script to use
     result_file = send_notification_via_file(

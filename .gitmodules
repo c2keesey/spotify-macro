@@ -1,0 +1,3 @@
+[submodule "telegram-cron"]
+	path = telegram-cron
+	url = git@github.com:c2keesey/telegram-cron.git

@@ -15,6 +15,7 @@ from common.config import PLAYLIST_FLOW_ENABLED, PLAYLIST_FLOW_SKIP_CYCLES, PLAY
 from common.spotify_utils import initialize_spotify_client, spotify_api_call_with_retry
 from common.utils.notifications import send_notification_via_file
 from common.playlist_cache import create_playlist_cache
+from common.telegram_utils import SpotifyTelegramNotifier
 
 # Timeout configuration (in seconds)
 OPERATION_TIMEOUT = 300  # 5 minutes total timeout
@@ -674,10 +675,14 @@ def run_action():
     Returns:
         tuple: (title, message) notification information
     """
+    # Initialize Telegram notifier
+    telegram = SpotifyTelegramNotifier("Playlist Flow")
+    
     # Check if playlist flow is enabled
     if not PLAYLIST_FLOW_ENABLED:
         title = "Playlist Flow Disabled"
         message = "Playlist flow automation is disabled in configuration."
+        telegram.send_info("Playlist flow is disabled", "Enable in configuration to use this feature")
         send_notification_via_file(title, message, "/tmp/spotify_playlist_flow_result.txt")
         print(f"{title}\n{message}")
         return title, message
@@ -741,9 +746,11 @@ def run_action():
                 for cycle in cycles:
                     cycle_names.extend([playlists_dict[pid]["name"] for pid in cycle])
                 message = f"Skipped flow due to {len(cycles)} cycle(s) involving: {', '.join(set(cycle_names))}"
+                telegram.send_info("Playlist flow skipped due to cycles", f"Found {len(cycles)} cycle(s) that would cause infinite loops")
             else:
                 title = "✅ No New Songs to Flow"
                 message = "All parent playlists are up to date with their children."
+                telegram.send_info("No new songs to flow", "All parent playlists are up to date")
         else:
             total_songs = sum(songs_added.values())
             title = f"✅ Flowed {total_songs} Songs"
@@ -757,10 +764,14 @@ def run_action():
             
             if cycles:
                 message += f"\n\nNote: Skipped {len(cycles)} cycle(s) to prevent infinite loops."
+            
+            telegram.send_success(f"Flowed {total_songs} songs to {len(songs_added)} playlists", 
+                                  "\n".join(flow_details))
     
     except Exception as e:
         title = "Error"
         message = f"Playlist flow failed: {str(e)}"
+        telegram.send_error("Playlist flow failed", str(e))
     
     # Send notification
     send_notification_via_file(title, message, "/tmp/spotify_playlist_flow_result.txt")

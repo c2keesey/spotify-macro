@@ -11,6 +11,7 @@ It currently includes:
 - **Spotify Genre Classification**: Save tracks with automatic genre-based playlist organization using hybrid AI classification
 - **Spotify Daily Liked Songs**: Automatically add songs liked in the last 24 hours to a specified playlist
 - **Spotify Playlist Flow**: Automatically flow songs between playlists using special naming conventions
+- **Artist Distribution Analysis**: Analyze your music collection to identify single playlist artists and curation patterns
 
 The modular design makes it easy to add new automations while maintaining a consistent structure.
 
@@ -137,6 +138,46 @@ Automatically flow songs between playlists using special naming conventions.
    ```
 
 3. See `CLAUDE.md` for detailed playlist flow feature documentation
+
+### Artist Distribution Analysis
+
+Analyze your music collection to identify single playlist artists and understand curation patterns.
+
+#### Key Findings
+
+Based on analysis of a 345-playlist collection with 2,921 unique artists:
+
+- **55.3% of artists appear in only one playlist** - indicating strong genre/mood-specific curation
+- **Tokyo Jazz Bar** has the highest concentration of unique artists (44 single playlist artists)
+- **LoVibe. Mix** follows with 40 unique artists
+- **Distribution breakdown**: 55.3% single playlist, 18.5% two playlists, 8.3% three playlists
+
+#### Features
+
+- **Single Playlist Artist Detection**: Identifies artists that appear in only one playlist
+- **Curation Pattern Analysis**: Reveals how specialized your playlists are
+- **Distribution Statistics**: Shows artist spread across your collection
+- **Playlist Ranking**: Orders playlists by uniqueness of their artists
+
+#### Setup
+
+1. Ensure you have downloaded your playlist data:
+
+   ```
+   python -m download.download_playlists
+   ```
+
+2. Run the artist distribution analysis:
+
+   ```
+   python analyze_single_playlist_artists.py
+   ```
+
+#### Future Development
+
+- **Smart Playlist Prioritization**: Prioritize single playlist artists over genre classification when adding new tracks
+- **Curation Recommendations**: Suggest which playlists need more variety vs. which benefit from specialization
+- **Cross-Playlist Discovery**: Find artists that could bridge different playlist themes
 
 ## Creating a New Automation
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from common.config import DAILY_LIKED_PLAYLIST_ID, DAILY_LIKED_PLAYLIST_NAME
 from common.spotify_utils import initialize_spotify_client
 from common.utils.notifications import send_notification_via_file
+from common.telegram_utils import SpotifyTelegramNotifier
 
 
 def get_or_create_playlist(sp):
@@ -97,6 +98,9 @@ def run_action():
     Returns:
         tuple: (title, message) notification information
     """
+    # Initialize Telegram notifier
+    telegram = SpotifyTelegramNotifier("Daily Liked Songs")
+    
     # Define the required scopes
     scope = "user-library-read playlist-modify-private playlist-read-private user-read-private playlist-modify-public"
 
@@ -150,6 +154,7 @@ def run_action():
             message = (
                 f"No songs were liked since {last_run_time.strftime('%Y-%m-%d %H:%M')}."
             )
+            telegram.send_info("No new liked songs found", f"Last checked: {last_run_time.strftime('%Y-%m-%d %H:%M')}")
         else:
             # Add the tracks to the playlist in chunks of 100 (Spotify API limit)
             for i in range(0, len(liked_tracks), 100):
@@ -162,12 +167,15 @@ def run_action():
 
             title = f"✅ Added {len(liked_tracks)} Songs"
             message = f"Added {len(liked_tracks)} liked songs to '{playlist_name}'"
+            
+            telegram.send_success(f"Added {len(liked_tracks)} liked songs", f"Added to '{playlist_name}' playlist")
 
             # Update the last run time after a successful execution
             save_last_run_time()
     except Exception as e:
         title = "Error"
         message = f"An error occurred: {str(e)}"
+        telegram.send_error("Failed to process daily liked songs", str(e))
 
     # Write the result to a temporary file
     result_file = send_notification_via_file(
