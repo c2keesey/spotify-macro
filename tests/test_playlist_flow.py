@@ -8,7 +8,7 @@ import time
 import pytest
 from typing import Dict, Any
 from tests.playlist_flow_test_utils import PlaylistFlowTestUtils
-from macros.spotify.playlist_flow.action import run_action
+from automations.spotify.playlist_flow.action import run_action
 
 
 @pytest.mark.spotify

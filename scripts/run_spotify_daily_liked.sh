@@ -20,7 +20,7 @@ if [ -n "$VENV_PATH" ] && [ -d "$VENV_PATH" ]; then
 fi
 
 # Run the Python module
-"$PYTHON" -m macros.spotify.daily_liked_songs.action
+"$PYTHON" -m automations.spotify.daily_liked_songs.action
 
 # If result file exists, use it for notification
 if [ -f /tmp/spotify_daily_liked_result.txt ]; then

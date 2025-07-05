@@ -84,10 +84,10 @@ test-cleanup:
 .PHONY: playlist-flow playlist-flow-test playlist-flow-prod
 
 playlist-flow:
-	SPOTIFY_ENV=test uv run python -m macros.spotify.playlist_flow.action
+	SPOTIFY_ENV=test uv run python -m automations.spotify.playlist_flow.action
 
 playlist-flow-test:
-	SPOTIFY_ENV=test uv run python -m macros.spotify.playlist_flow.action
+	SPOTIFY_ENV=test uv run python -m automations.spotify.playlist_flow.action
 
 playlist-flow-prod:
-	SPOTIFY_ENV=prod uv run python -m macros.spotify.playlist_flow.action
+	SPOTIFY_ENV=prod uv run python -m automations.spotify.playlist_flow.action

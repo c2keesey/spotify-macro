@@ -27,7 +27,7 @@ fi
 source "$VENV_PATH/bin/activate"
 
 # Run the Python script - using the module path instead of a direct file path
-python -m macros.spotify.save_current
+python -m automations.spotify.save_current
 
 # Deactivate the virtual environment
 deactivate

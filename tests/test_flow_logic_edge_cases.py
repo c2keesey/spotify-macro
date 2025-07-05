@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import Mock, MagicMock
-from macros.spotify.playlist_flow.action import (
+from automations.spotify.playlist_flow.action import (
     build_playlist_relationships, 
     detect_cycles,
     flow_songs_to_parents

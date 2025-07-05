@@ -1,6 +1,6 @@
 #!/bin/bash
-# Template shell script for running a new automation
-# Copy this file and modify for your new automation
+# Shell script for running the Spotify artist matching automation
+# Adds songs from 'new' playlist to target playlists based on single-playlist artist matching
 
 # Determine the project root directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,14 +28,14 @@ fi
 
 source "$VENV_PATH/bin/activate"
 
-# Run the Python script - update this with your module path
-python -m automations.template.action
+# Run the Python script
+python -m automations.spotify.artist_matching.action
 
 # Deactivate the virtual environment
 deactivate
 
 # Display notification from the temporary file
-NOTIFICATION_FILE="/tmp/notification_result.txt"
+NOTIFICATION_FILE="/tmp/spotify_artist_matching_result.txt"
 if [ -f "$NOTIFICATION_FILE" ]; then
     # Read the first line as title and the rest as message
     title=$(head -n 1 "$NOTIFICATION_FILE")

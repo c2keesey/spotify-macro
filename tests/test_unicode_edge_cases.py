@@ -1,7 +1,7 @@
 """Tests for Unicode edge case handling in playlist flow automation."""
 
 import pytest
-from macros.spotify.playlist_flow.action import extract_flow_characters
+from automations.spotify.playlist_flow.action import extract_flow_characters
 
 
 class TestUnicodeEdgeCases:

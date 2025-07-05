@@ -20,7 +20,7 @@ if [ -n "$VENV_PATH" ] && [ -d "$VENV_PATH" ]; then
 fi
 
 # Run the Python module
-"$PYTHON" -m macros.spotify.playlist_flow.action
+"$PYTHON" -m automations.spotify.playlist_flow.action
 
 # If result file exists, use it for notification
 if [ -f /tmp/spotify_playlist_flow_result.txt ]; then

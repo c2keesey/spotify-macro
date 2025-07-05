@@ -73,7 +73,7 @@ log "Set SPOTIFY_ENV to: $SPOTIFY_ENV"
 
 # Run the playlist flow automation
 log "Starting playlist flow automation..."
-if "$UV_CMD" run python -m macros.spotify.playlist_flow.action 2>&1 | while IFS= read -r line; do
+if "$UV_CMD" run python -m automations.spotify.playlist_flow.action 2>&1 | while IFS= read -r line; do
     log "STDOUT: $line"
 done; then
     log "Playlist flow automation completed successfully"

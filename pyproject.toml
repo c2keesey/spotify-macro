@@ -31,7 +31,7 @@ dependencies = [
 "Homepage" = "https://github.com/username/macos-automations"
 
 [tool.setuptools]
-packages = ["macros", "common"]
+packages = ["automations", "common", "data", "analysis", "visualization"]
 
 [dependency-groups]
 dev = [
@@ -46,4 +46,4 @@ dev = [
 ]
 
 [project.scripts]
-save-spotify-track = "macros.spotify.save_current:main"
+save-spotify-track = "automations.spotify.save_current:main"

@@ -29,7 +29,7 @@ source "$VENV_PATH/bin/activate"
 cd "$PROJECT_ROOT"
 
 # Run the genre-aware save automation
-python -m macros.spotify.save_current_with_genre
+python -m automations.spotify.save_current_with_genre
 
 # Check if the automation created a result file
 RESULT_FILE="/tmp/spotify_genre_save_result.txt"
