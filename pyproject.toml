@@ -47,3 +47,4 @@ dev = [
 
 [project.scripts]
 save-spotify-track = "automations.spotify.save_current:main"
+classify-spotify-staging = "automations.spotify.staging_classification:main"
