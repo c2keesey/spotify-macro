@@ -21,7 +21,7 @@ This project provides a structured framework for creating various Spotify automa
 - **Spotify Save Current**: Save currently playing track with keyboard shortcut
 - **Playlist Flow**: Automatic hierarchical music promotion using special naming conventions
 - **Artist Matching**: Single-playlist artist detection for intelligent music distribution
-- **Genre Classification**: Hybrid AI classification with 76% accuracy and 5x precision improvement
+- **Genre Classification**: Multi-class composite classifier with 66% F1 score and 95% coverage
 - **Daily Liked Songs**: Automatic processing of recently liked songs
 - **Analysis Tools**: Collection pattern analysis and optimization research
 
@@ -93,7 +93,7 @@ Intelligent distribution of new music from staging to appropriate target playlis
 
 #### Multi-Strategy Classification
 1. **Artist Matching**: Single-playlist artist detection (✅ Implemented)
-2. **Genre Classification**: Hybrid AI system with 76% accuracy (✅ Implemented)
+2. **Genre Classification**: Multi-class composite system with 66% F1 score (✅ Implemented)
 3. **Audio Feature Analysis**: Electronic music specialist patterns (✅ Implemented)
 4. **Integration Layer**: Cohesive classification pipeline (🔧 In Progress)
 
@@ -111,21 +111,44 @@ Save the currently playing Spotify track to your library with a keyboard shortcu
 
 #### Setup
 
-1. Create a Spotify App:
+1. Create Spotify Apps for both test and production:
 
    - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/)
-   - Click "Create an App"
-   - Set the Redirect URI to http://localhost:8888/callback
+   - Create two apps: one for testing, one for production
+   - Set Redirect URIs:
+     - **Test environment**: `http://127.0.0.1:8889/callback`
+     - **Production environment**: `http://127.0.0.1:8888/callback`
 
-2. Create a `.env` file in the project root with your Spotify App credentials:
+2. Create environment-specific configuration files:
 
+   **`.env.test`** (for testing):
    ```
-   CLIENT_ID=your_client_id_here
-   CLIENT_SECRET=your_client_secret_here
+   CLIENT_ID=your_test_client_id_here
+   CLIENT_SECRET=your_test_client_secret_here
    VENV_PATH=/path/to/your/project/.venv
    ```
 
-3. Follow the instructions in `workflows/spotify_save_current.md` to set up the Automator workflow and keyboard shortcut
+   **`.env.prod`** (for production):
+   ```
+   CLIENT_ID=your_prod_client_id_here
+   CLIENT_SECRET=your_prod_client_secret_here
+   VENV_PATH=/path/to/your/project/.venv
+   ```
+
+3. Authenticate (SSH-compatible process):
+
+   ```bash
+   # Test environment authentication
+   SPOTIFY_ENV=test uv run python scripts/spotify_auth.py url
+   # Open the URL in any browser, get the auth code from error page
+   SPOTIFY_ENV=test uv run python scripts/spotify_auth.py auth --code '<auth_code>'
+   
+   # Production environment authentication
+   SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py url
+   SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py auth --code '<auth_code>'
+   ```
+
+4. Follow the instructions in `workflows/spotify_save_current.md` to set up the Automator workflow and keyboard shortcut
 
 #### Spotify Genre Classification
 
@@ -133,11 +156,11 @@ Core component of the downward flow system with automatic genre-based playlist o
 
 ##### Classification Engine Features
 
-- **Hybrid Classification**: Combines artist patterns, audio features, and genre data for 76% accuracy
-- **Electronic Music Specialist**: Optimized for electronic sub-genres (House, Techno, Bass, etc.)
-- **5x Precision Improvement**: 63.4% precision vs. 12% in basic systems
-- **Multi-Strategy Approach**: Artist matching → Genre analysis → Audio features
-- **Folder-based Organization**: Automatically sorts into genre-specific playlist folders
+- **Multi-Class Composite Classification**: 66% F1 score with 95% coverage across 14 folders
+- **Multi-Class Output**: Tracks can be assigned to multiple folders (19% of tracks)
+- **Optimized Parameters**: Multi-class threshold of 0.05 for optimal performance  
+- **Folder-Specific Strategies**: Enhanced genre, simple artist, balanced, and conservative approaches
+- **Training Data Utilization**: Leverages existing multi-folder tracks in training data
 - **Flow Integration**: Works seamlessly with playlist hierarchy system
 
 #### Setup
@@ -346,23 +369,42 @@ spotify-automation/
 
 ## Environment Variables
 
-Create a `.env` file in the root directory with the following variables:
+Create environment-specific configuration files for test and production environments:
 
+### `.env.test` (Test Environment)
 ```
-# Required
-CLIENT_ID=your_spotify_client_id
-CLIENT_SECRET=your_spotify_client_secret
+# Required - Test Spotify App credentials
+CLIENT_ID=your_test_spotify_client_id
+CLIENT_SECRET=your_test_spotify_client_secret
 
 # Optional
 VENV_PATH=/path/to/your/virtual/environment
 PYTHON_PATH=/path/to/python/executable
 
 # Spotify Daily Liked Songs (optional)
-# Use either DAILY_LIKED_PLAYLIST_ID to specify a particular playlist by ID
-DAILY_LIKED_PLAYLIST_ID=your_playlist_id
-# Or specify a playlist name - the script will find it or create it if needed
-DAILY_LIKED_PLAYLIST_NAME=Your Custom Playlist Name
+DAILY_LIKED_PLAYLIST_ID=test_playlist_id
+DAILY_LIKED_PLAYLIST_NAME=Test Daily Liked Songs
 ```
+
+### `.env.prod` (Production Environment)
+```
+# Required - Production Spotify App credentials  
+CLIENT_ID=your_prod_spotify_client_id
+CLIENT_SECRET=your_prod_spotify_client_secret
+
+# Optional
+VENV_PATH=/path/to/your/virtual/environment
+PYTHON_PATH=/path/to/python/executable
+
+# Spotify Daily Liked Songs (optional)
+DAILY_LIKED_PLAYLIST_ID=your_playlist_id
+DAILY_LIKED_PLAYLIST_NAME=Daily Liked Songs
+```
+
+### Environment Control
+- Set `SPOTIFY_ENV=test` or `SPOTIFY_ENV=prod` to control which environment to use
+- Defaults to `test` for safety
+- Authentication is cached separately per environment
 
 ## Running Automations
 
@@ -370,41 +412,65 @@ All automations can be run individually or as part of the integrated flow system
 
 ### Manual Operations
 ```bash
-# Save current track
-./scripts/run_spotify_save.sh
+# Save current track (environment-aware)
+SPOTIFY_ENV=test ./scripts/run_spotify_save.sh
+SPOTIFY_ENV=prod ./scripts/run_spotify_save.sh
 
 # Save with genre classification
-./scripts/run_spotify_genre_save.sh
+SPOTIFY_ENV=test ./scripts/run_spotify_genre_save.sh
+SPOTIFY_ENV=prod ./scripts/run_spotify_genre_save.sh
 ```
 
 ### Downward Flow (Classification)
 ```bash
 # Staging: Collect recent likes
-./scripts/run_spotify_daily_liked.sh
+SPOTIFY_ENV=test ./scripts/run_spotify_daily_liked.sh
+SPOTIFY_ENV=prod ./scripts/run_spotify_daily_liked.sh
 
 # Classification: Artist-based distribution
-./scripts/run_spotify_artist_matching.sh
+SPOTIFY_ENV=test ./scripts/run_spotify_artist_matching.sh
+SPOTIFY_ENV=prod ./scripts/run_spotify_artist_matching.sh
 
 # Classification: Genre-based distribution (integrated with save)
-./scripts/run_spotify_genre_save.sh
+SPOTIFY_ENV=test ./scripts/run_spotify_genre_save.sh
+SPOTIFY_ENV=prod ./scripts/run_spotify_genre_save.sh
 ```
 
 ### Upward Flow (Promotion)
 ```bash
 # Hierarchical promotion
-./scripts/run_spotify_playlist_flow.sh
+SPOTIFY_ENV=test ./scripts/run_spotify_playlist_flow.sh
+SPOTIFY_ENV=prod ./scripts/run_spotify_playlist_flow.sh
 ```
 
 ### Direct Python Execution
 ```bash
 # Individual components
-uv run python -m automations.spotify.daily_liked_songs.action  # Staging
-uv run python -m automations.spotify.artist_matching.action    # Classification
-uv run python -m automations.spotify.playlist_flow.action      # Promotion
+SPOTIFY_ENV=test uv run python -m automations.spotify.daily_liked_songs.action  # Staging
+SPOTIFY_ENV=test uv run python -m automations.spotify.artist_matching.action    # Classification
+SPOTIFY_ENV=test uv run python -m automations.spotify.playlist_flow.action      # Promotion
 
 # Manual operations
-uv run python -m automations.spotify.save_current
-uv run python -m automations.spotify.save_current_with_genre
+SPOTIFY_ENV=test uv run python -m automations.spotify.save_current
+SPOTIFY_ENV=test uv run python -m automations.spotify.save_current_with_genre
+
+# Switch to production environment as needed
+SPOTIFY_ENV=prod uv run python -m automations.spotify.save_current
+```
+
+### Authentication Management
+```bash
+# SSH-compatible authentication setup
+SPOTIFY_ENV=test uv run python scripts/spotify_auth.py url      # Get auth URL
+SPOTIFY_ENV=test uv run python scripts/spotify_auth.py auth --code '<code>'  # Complete auth
+
+# Test authentication
+SPOTIFY_ENV=test uv run python scripts/spotify_auth.py test
+SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py test
+
+# Check authentication status
+SPOTIFY_ENV=test uv run python scripts/spotify_auth.py status
+SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py status
 ```
 
 ### Flow System Integration (Future)
@@ -415,6 +481,11 @@ uv run python -m automations.spotify.save_current_with_genre
 # Coordinated bidirectional flow (planned)
 ./scripts/run_full_flow_system.sh
 ```
+
+## Acknowledgments
+
+- BPM and key data provided by [GetSongBPM.com](https://getsongbpm.com)
+- Music metadata from [Last.fm](https://www.last.fm) and [Deezer](https://www.deezer.com) APIs
 
 ## Contributing
 
