@@ -32,11 +32,15 @@ from common.telegram_utils import SpotifyTelegramNotifier
 from common.genre_classification_utils import classify_track, find_best_target_playlist
 
 # Import artist matching utilities (we'll reuse the flow character logic)
-import sys
-from pathlib import Path
-artist_matching_path = str(Path(__file__).parent.parent / "artist_matching")
-sys.path.append(artist_matching_path)
-import action as artist_matching_action
+try:
+    from automations.spotify.artist_matching import action as artist_matching_action
+except ImportError:
+    # Fallback to path-based import
+    import sys
+    from pathlib import Path
+    artist_matching_path = str(Path(__file__).parent.parent / "artist_matching")
+    sys.path.append(artist_matching_path)
+    import action as artist_matching_action
 
 
 class StagingClassificationResults:
@@ -45,12 +49,14 @@ class StagingClassificationResults:
     def __init__(self):
         self.artist_matches = {}  # playlist_id -> list of track_ids
         self.genre_matches = {}   # playlist_id -> list of track_ids  
+        self.already_classified = []  # list of track_ids already in target playlists
         self.unclassified = []    # list of track_ids
         self.errors = []          # list of error messages
         self.statistics = {
             'total_tracks': 0,
             'artist_classification_count': 0,
             'genre_classification_count': 0,
+            'already_classified_count': 0,
             'unclassified_count': 0,
             'single_playlist_artists_available': 0
         }
@@ -69,6 +75,11 @@ class StagingClassificationResults:
         self.genre_matches[playlist_id].append(track_id)
         self.statistics['genre_classification_count'] += 1
     
+    def add_already_classified(self, track_id: str):
+        """Add a track that's already in its correct target playlist."""
+        self.already_classified.append(track_id)
+        self.statistics['already_classified_count'] += 1
+    
     def add_unclassified(self, track_id: str):
         """Add a track that couldn't be classified."""
         self.unclassified.append(track_id)
@@ -79,12 +90,202 @@ class StagingClassificationResults:
         self.errors.append(error_msg)
 
 
+def classify_and_process_track(sp, track: Dict, source_playlist_id: str, 
+                             single_playlist_artists: Set[str],
+                             artist_to_playlists: Dict[str, Set[str]],
+                             playlists_dict: Dict[str, Dict],
+                             unclassified_playlist_id: Optional[str] = None) -> Tuple[str, Optional[str]]:
+    """
+    Classify and immediately process a single track (add to target + remove from source).
+    
+    Args:
+        sp: Spotify client
+        track: Track data dictionary
+        source_playlist_id: ID of the source staging playlist
+        single_playlist_artists: Set of artist IDs that appear in only one playlist
+        artist_to_playlists: Mapping of artist_id to set of playlist_ids
+        playlists_dict: Dictionary of playlist data
+        unclassified_playlist_id: ID of unclassified playlist (if it exists)
+        
+    Returns:
+        Tuple of (classification_result, target_playlist_id_or_action)
+    """
+    track_id = track["id"]
+    track_name = track["name"]
+    artists = track["artists"]
+    
+    # STRATEGY 1: Artist Matching (Priority 1 - 100% accuracy)
+    for artist in artists:
+        artist_id = artist.get("id")
+        artist_name = artist.get("name")
+        
+        if artist_id in single_playlist_artists:
+            target_playlist_ids = artist_to_playlists[artist_id]
+            
+            if len(target_playlist_ids) == 1:
+                target_playlist_id = list(target_playlist_ids)[0]
+                
+                if target_playlist_id == source_playlist_id:
+                    continue
+                
+                # Check if track is already in target playlist
+                target_tracks = playlists_dict[target_playlist_id]["tracks"]
+                existing_track_ids = {t["id"] for t in target_tracks}
+                target_name = playlists_dict[target_playlist_id]["name"]
+                
+                if track_id not in existing_track_ids:
+                    # Add to target playlist immediately
+                    try:
+                        spotify_api_call_with_retry(
+                            sp.playlist_add_items, target_playlist_id, [track_id]
+                        )
+                        print(f"  🎯 Artist match: '{track_name}' → '{target_name}' (artist: {artist_name})")
+                        
+                        # Remove from source immediately
+                        remove_single_track_from_playlist(sp, source_playlist_id, track_id)
+                        
+                        return "artist_match", target_playlist_id
+                        
+                    except Exception as e:
+                        print(f"  ❌ Failed to add '{track_name}' to '{target_name}': {e}")
+                        continue
+                else:
+                    # Already in target - just remove from source
+                    print(f"  ✅ Already in target: '{track_name}' already in '{target_name}' (artist: {artist_name})")
+                    remove_single_track_from_playlist(sp, source_playlist_id, track_id)
+                    return "already_classified", target_playlist_id
+    
+    # STRATEGY 2: Genre Classification (Priority 2 - 76% accuracy)
+    try:
+        classifications = classify_track(sp, track_id)
+        
+        if classifications:
+            for genre in classifications:
+                target_playlist_id = find_best_target_playlist(sp, genre, track_id)
+                
+                if target_playlist_id and target_playlist_id != source_playlist_id:
+                    if target_playlist_id in playlists_dict:
+                        # Check if track is already in target playlist
+                        target_tracks = playlists_dict[target_playlist_id]["tracks"]
+                        existing_track_ids = {t["id"] for t in target_tracks}
+                        target_name = playlists_dict[target_playlist_id]["name"]
+                        
+                        if track_id not in existing_track_ids:
+                            # Add to target playlist immediately
+                            try:
+                                spotify_api_call_with_retry(
+                                    sp.playlist_add_items, target_playlist_id, [track_id]
+                                )
+                                print(f"  🎵 Genre match: '{track_name}' → '{target_name}' (genre: {genre})")
+                                
+                                # Remove from source immediately
+                                remove_single_track_from_playlist(sp, source_playlist_id, track_id)
+                                
+                                return "genre_match", target_playlist_id
+                                
+                            except Exception as e:
+                                print(f"  ❌ Failed to add '{track_name}' to '{target_name}': {e}")
+                                continue
+                        else:
+                            # Already in target - just remove from source
+                            print(f"  ✅ Already in target: '{track_name}' already in '{target_name}' (genre: {genre})")
+                            remove_single_track_from_playlist(sp, source_playlist_id, track_id)
+                            return "already_classified", target_playlist_id
+    
+    except Exception as e:
+        print(f"  ❌ Genre classification error for '{track_name}': {e}")
+    
+    # STRATEGY 3: Move to Unclassified playlist
+    print(f"  ❓ Moving '{track_name}' to Unclassified")
+    
+    # Ensure unclassified playlist exists
+    if not unclassified_playlist_id:
+        unclassified_playlist_id = get_or_create_unclassified_playlist(sp, playlists_dict)
+    
+    if unclassified_playlist_id:
+        try:
+            # Add to unclassified playlist immediately
+            spotify_api_call_with_retry(
+                sp.playlist_add_items, unclassified_playlist_id, [track_id]
+            )
+            print(f"  📋 Moved '{track_name}' to 'Unclassified'")
+            
+            # Remove from source immediately
+            remove_single_track_from_playlist(sp, source_playlist_id, track_id)
+            
+            return "unclassified", unclassified_playlist_id
+            
+        except Exception as e:
+            print(f"  ❌ Failed to move '{track_name}' to Unclassified: {e}")
+    
+    # If all else fails, leave in source
+    print(f"  ⚠️ Could not process '{track_name}' - leaving in source")
+    return "failed", None
+
+
+def remove_single_track_from_playlist(sp, playlist_id: str, track_id: str):
+    """Remove a single track from a playlist by finding its position."""
+    try:
+        # Get current tracks to find position
+        current_tracks = spotify_api_call_with_retry(
+            sp.playlist_items, playlist_id, fields="items.track.id"
+        )
+        
+        # Find the position of this track (take first occurrence)
+        for i, item in enumerate(current_tracks['items']):
+            if item['track']['id'] == track_id:
+                # Remove this specific occurrence
+                spotify_api_call_with_retry(
+                    sp.playlist_remove_specific_occurrences_of_items,
+                    playlist_id,
+                    [{"positions": [i]}]
+                )
+                return
+                
+    except Exception as e:
+        print(f"    ⚠️ Error removing track from playlist: {e}")
+
+
+def get_or_create_unclassified_playlist(sp, playlists_dict: Dict[str, Dict]) -> Optional[str]:
+    """Get existing or create new Unclassified playlist."""
+    # Check if it already exists
+    for playlist_id, playlist_data in playlists_dict.items():
+        if playlist_data["name"].lower() == "unclassified":
+            return playlist_id
+    
+    # Create new one
+    try:
+        user_id = spotify_api_call_with_retry(sp.current_user)["id"]
+        playlist_response = spotify_api_call_with_retry(
+            sp.user_playlist_create,
+            user_id,
+            "Unclassified",
+            public=False,
+            description="Songs that couldn't be automatically classified"
+        )
+        unclassified_playlist_id = playlist_response["id"]
+        print(f"  ✅ Created new 'Unclassified' playlist")
+        
+        # Add to playlists_dict for tracking
+        playlists_dict[unclassified_playlist_id] = {
+            "name": "Unclassified",
+            "tracks": []
+        }
+        
+        return unclassified_playlist_id
+        
+    except Exception as e:
+        print(f"  ❌ Failed to create 'Unclassified' playlist: {e}")
+        return None
+
+
 def classify_staging_tracks(sp, playlists_dict: Dict[str, Dict], 
                           source_playlist_id: str,
                           single_playlist_artists: Set[str],
                           artist_to_playlists: Dict[str, Set[str]]) -> StagingClassificationResults:
     """
-    Classify tracks from staging playlist using multi-strategy approach.
+    Classify tracks from staging playlist using immediate processing approach.
+    Each track is classified and immediately moved (resilient to interruptions).
     
     Args:
         sp: Spotify client
@@ -97,177 +298,100 @@ def classify_staging_tracks(sp, playlists_dict: Dict[str, Dict],
         StagingClassificationResults: Comprehensive classification results
     """
     results = StagingClassificationResults()
-    source_tracks = playlists_dict[source_playlist_id]["tracks"]
+    source_tracks = playlists_dict[source_playlist_id]["tracks"].copy()  # Copy to avoid modification during iteration
     source_name = playlists_dict[source_playlist_id]["name"]
     
     results.statistics['total_tracks'] = len(source_tracks)
     results.statistics['single_playlist_artists_available'] = len(single_playlist_artists)
     
-    print(f"Classifying {len(source_tracks)} tracks from '{source_name}'...")
+    print(f"Processing {len(source_tracks)} tracks from '{source_name}' (immediate mode)...")
     print(f"Available single-playlist artists: {len(single_playlist_artists)}")
     
-    for track in source_tracks:
+    # Track results for summary
+    processed_tracks = {}
+    unclassified_playlist_id = None
+    
+    for i, track in enumerate(source_tracks):
         track_id = track["id"]
         track_name = track["name"]
-        artists = track["artists"]
+        print(f"\n🎵 Track {i+1}/{len(source_tracks)}: '{track_name}'")
         
-        # STRATEGY 1: Artist Matching (Priority 1 - 100% accuracy)
-        artist_matched = False
-        for artist in artists:
-            artist_id = artist.get("id")
-            artist_name = artist.get("name")
-            
-            if artist_id in single_playlist_artists:
-                # This artist appears in only one playlist
-                target_playlist_ids = artist_to_playlists[artist_id]
-                
-                if len(target_playlist_ids) == 1:
-                    target_playlist_id = list(target_playlist_ids)[0]
-                    
-                    # Don't add to source playlist itself
-                    if target_playlist_id == source_playlist_id:
-                        continue
-                    
-                    # Check if track is already in target playlist
-                    target_tracks = playlists_dict[target_playlist_id]["tracks"]
-                    existing_track_ids = {t["id"] for t in target_tracks}
-                    
-                    if track_id not in existing_track_ids:
-                        results.add_artist_match(target_playlist_id, track_id)
-                        target_name = playlists_dict[target_playlist_id]["name"]
-                        print(f"  🎯 Artist match: '{track_name}' → '{target_name}' (artist: {artist_name})")
-                        artist_matched = True
-                        break
-        
-        if artist_matched:
-            continue
-        
-        # STRATEGY 2: Genre Classification (Priority 2 - 76% accuracy)
         try:
-            classifications = classify_track(sp, track_id)
+            # Process track immediately (classify + add to target + remove from source)
+            classification_result, target_id = classify_and_process_track(
+                sp, track, source_playlist_id, single_playlist_artists, 
+                artist_to_playlists, playlists_dict, unclassified_playlist_id
+            )
             
-            if classifications:
-                # Find the best target playlist for each genre
-                genre_matched = False
-                for genre in classifications:
-                    target_playlist_id = find_best_target_playlist(sp, genre, track_id)
-                    
-                    if target_playlist_id and target_playlist_id != source_playlist_id:
-                        # Verify the playlist exists in our data
-                        if target_playlist_id in playlists_dict:
-                            # Check if track is already in target playlist
-                            target_tracks = playlists_dict[target_playlist_id]["tracks"]
-                            existing_track_ids = {t["id"] for t in target_tracks}
-                            
-                            if track_id not in existing_track_ids:
-                                results.add_genre_match(target_playlist_id, track_id)
-                                target_name = playlists_dict[target_playlist_id]["name"]
-                                print(f"  🎵 Genre match: '{track_name}' → '{target_name}' (genre: {genre})")
-                                genre_matched = True
-                                break
-                
-                if not genre_matched:
-                    results.add_unclassified(track_id)
-                    print(f"  ❓ No suitable playlist found for '{track_name}' (genres: {', '.join(classifications)})")
-            else:
+            # Update unclassified playlist ID if it was created
+            if classification_result == "unclassified" and target_id:
+                unclassified_playlist_id = target_id
+            
+            # Track results for statistics
+            if classification_result == "artist_match":
+                results.add_artist_match(target_id, track_id)
+                processed_tracks[target_id] = processed_tracks.get(target_id, 0) + 1
+            elif classification_result == "genre_match":
+                results.add_genre_match(target_id, track_id)
+                processed_tracks[target_id] = processed_tracks.get(target_id, 0) + 1
+            elif classification_result == "already_classified":
+                results.add_already_classified(track_id)
+            elif classification_result == "unclassified":
                 results.add_unclassified(track_id)
-                print(f"  ❓ No genre classification for '{track_name}'")
-        
+                if target_id:
+                    processed_tracks[target_id] = processed_tracks.get(target_id, 0) + 1
+            elif classification_result == "failed":
+                results.add_error(f"Failed to process '{track_name}'")
+                results.add_unclassified(track_id)
+                
         except Exception as e:
-            results.add_error(f"Genre classification failed for '{track_name}': {str(e)}")
-            results.add_unclassified(track_id)
-            print(f"  ❌ Genre classification error for '{track_name}': {e}")
+            results.add_error(f"Error processing '{track_name}': {str(e)}")
+            print(f"  ❌ Error processing '{track_name}': {e}")
+    
+    # Update statistics with actual processed counts
+    print(f"\n📊 Processing complete:")
+    print(f"  • Artist matches: {results.statistics['artist_classification_count']}")
+    print(f"  • Genre matches: {results.statistics['genre_classification_count']}")
+    print(f"  • Already classified: {results.statistics['already_classified_count']}")
+    print(f"  • Moved to Unclassified: {results.statistics['unclassified_count']}")
     
     return results
 
 
-def execute_classifications(sp, playlists_dict: Dict[str, Dict], 
-                          results: StagingClassificationResults) -> Dict[str, int]:
+def summarize_processed_tracks(results: StagingClassificationResults, 
+                             playlists_dict: Dict[str, Dict]) -> Dict[str, int]:
     """
-    Execute the actual playlist additions based on classification results.
+    Summarize tracks that have already been processed (since processing is now immediate).
     
     Args:
-        sp: Spotify client
+        results: Classification results with processed tracks
         playlists_dict: Dictionary of playlist data
-        results: Classification results to execute
         
     Returns:
-        Dictionary mapping playlist_id to number of songs successfully added
+        Dictionary mapping playlist_id to number of songs processed
     """
     songs_added = {}
     
-    # Process artist matches first (higher priority)
-    if results.artist_matches:
-        print("Executing artist-based classifications...")
-        for target_playlist_id, track_ids in results.artist_matches.items():
-            target_name = playlists_dict[target_playlist_id]["name"]
-            
-            # Remove duplicates
-            unique_track_ids = list(set(track_ids))
-            
-            if unique_track_ids:
-                try:
-                    # Add tracks in chunks of 100
-                    chunk_size = 100
-                    for i in range(0, len(unique_track_ids), chunk_size):
-                        chunk = unique_track_ids[i:i + chunk_size]
-                        spotify_api_call_with_retry(
-                            sp.playlist_add_items, target_playlist_id, chunk
-                        )
-                    
-                    songs_added[target_playlist_id] = len(unique_track_ids)
-                    print(f"  ✅ Added {len(unique_track_ids)} songs to '{target_name}' (artist matching)")
-                    
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if any(perm_keyword in error_msg for perm_keyword in [
-                        'insufficient privileges', 'permission', 'forbidden', 
-                        'unauthorized', 'access denied', 'not allowed', 
-                        'modify', 'owner', 'collaborative'
-                    ]):
-                        results.add_error(f"Permission denied for '{target_name}' - skipping")
-                        print(f"  ⚠️ Permission denied for '{target_name}' - skipping")
-                    else:
-                        results.add_error(f"Failed to add tracks to '{target_name}': {e}")
-                        print(f"  ❌ Failed to add tracks to '{target_name}': {e}")
+    # Count artist matches
+    for target_playlist_id, track_ids in results.artist_matches.items():
+        songs_added[target_playlist_id] = songs_added.get(target_playlist_id, 0) + len(track_ids)
     
-    # Process genre matches second (lower priority)
-    if results.genre_matches:
-        print("Executing genre-based classifications...")
-        for target_playlist_id, track_ids in results.genre_matches.items():
-            target_name = playlists_dict[target_playlist_id]["name"]
-            
-            # Remove duplicates
-            unique_track_ids = list(set(track_ids))
-            
-            if unique_track_ids:
-                try:
-                    # Add tracks in chunks of 100
-                    chunk_size = 100
-                    for i in range(0, len(unique_track_ids), chunk_size):
-                        chunk = unique_track_ids[i:i + chunk_size]
-                        spotify_api_call_with_retry(
-                            sp.playlist_add_items, target_playlist_id, chunk
-                        )
-                    
-                    current_count = songs_added.get(target_playlist_id, 0)
-                    songs_added[target_playlist_id] = current_count + len(unique_track_ids)
-                    print(f"  ✅ Added {len(unique_track_ids)} songs to '{target_name}' (genre matching)")
-                    
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if any(perm_keyword in error_msg for perm_keyword in [
-                        'insufficient privileges', 'permission', 'forbidden', 
-                        'unauthorized', 'access denied', 'not allowed', 
-                        'modify', 'owner', 'collaborative'
-                    ]):
-                        results.add_error(f"Permission denied for '{target_name}' - skipping")
-                        print(f"  ⚠️ Permission denied for '{target_name}' - skipping")
-                    else:
-                        results.add_error(f"Failed to add tracks to '{target_name}': {e}")
-                        print(f"  ❌ Failed to add tracks to '{target_name}': {e}")
+    # Count genre matches
+    for target_playlist_id, track_ids in results.genre_matches.items():
+        songs_added[target_playlist_id] = songs_added.get(target_playlist_id, 0) + len(track_ids)
+    
+    # Count unclassified tracks (they were moved to Unclassified playlist)
+    unclassified_count = len(results.unclassified)
+    if unclassified_count > 0:
+        # Find the Unclassified playlist ID
+        for playlist_id, playlist_data in playlists_dict.items():
+            if playlist_data["name"].lower() == "unclassified":
+                songs_added[playlist_id] = songs_added.get(playlist_id, 0) + unclassified_count
+                break
     
     return songs_added
+
+
 
 
 def run_action():
@@ -330,31 +454,40 @@ def run_action():
         
         print(f"Found {len(single_playlist_artists)} single-playlist artists")
         
-        # Classify tracks using multi-strategy approach
-        print("Starting multi-strategy classification...")
+        # Process tracks with immediate classification and movement (interruption-safe)
+        print("Starting immediate classification and processing...")
         results = classify_staging_tracks(sp, playlists_dict, source_playlist_id, 
                                         single_playlist_artists, artist_to_playlists)
         
-        # Execute classifications
-        songs_added = execute_classifications(sp, playlists_dict, results)
+        # Summarize what was processed (tracks already moved)
+        songs_added = summarize_processed_tracks(results, playlists_dict)
+        
+        # Calculate totals
+        unclassified_moved = len(results.unclassified)
+        tracks_processed = (results.statistics['artist_classification_count'] + 
+                          results.statistics['genre_classification_count'] + 
+                          results.statistics['already_classified_count'] + 
+                          unclassified_moved)
         
         # Build comprehensive notification message
         stats = results.statistics
         total_classified = stats['artist_classification_count'] + stats['genre_classification_count']
+        total_handled = total_classified + stats['already_classified_count'] + unclassified_moved
         
-        if total_classified == 0:
+        if total_handled == 0:
             title = "ℹ️ No Songs Classified"
             message = f"No songs from '{source_name}' could be classified."
             telegram.send_info("No songs classified", f"Processed {stats['total_tracks']} tracks")
         else:
-            title = f"✅ Classified {total_classified} Songs"
+            title = f"✅ Processed {total_handled} Songs"
             
             # Build detailed breakdown
             breakdown = []
             breakdown.append(f"📊 Classification Results:")
             breakdown.append(f"  • Artist matching: {stats['artist_classification_count']} songs (100% accuracy)")
             breakdown.append(f"  • Genre matching: {stats['genre_classification_count']} songs (76% accuracy)")
-            breakdown.append(f"  • Unclassified: {stats['unclassified_count']} songs")
+            breakdown.append(f"  • Already classified: {stats['already_classified_count']} songs")
+            breakdown.append(f"  • Moved to Unclassified: {unclassified_moved} songs")
             breakdown.append(f"  • Available single-playlist artists: {stats['single_playlist_artists_available']}")
             
             if songs_added:
@@ -363,6 +496,14 @@ def run_action():
                 for target_playlist_id, count in songs_added.items():
                     target_name = playlists_dict[target_playlist_id]["name"]
                     breakdown.append(f"  • {target_name}: +{count}")
+            
+            if unclassified_moved > 0:
+                breakdown.append(f"")
+                breakdown.append(f"📋 Moved to 'Unclassified': +{unclassified_moved} tracks")
+            
+            if tracks_processed > 0:
+                breakdown.append(f"")
+                breakdown.append(f"🧹 Processed and removed from '{source_name}': {tracks_processed} tracks")
             
             if results.errors:
                 breakdown.append(f"")
@@ -375,8 +516,8 @@ def run_action():
             message = "\n".join(breakdown)
             
             # Send success notification
-            telegram_summary = f"Artist: {stats['artist_classification_count']}, Genre: {stats['genre_classification_count']}, Unclassified: {stats['unclassified_count']}"
-            telegram.send_success(f"Classified {total_classified}/{stats['total_tracks']} songs", telegram_summary)
+            telegram_summary = f"New: {total_classified}, Already: {stats['already_classified_count']}, Unclassified: {unclassified_moved}"
+            telegram.send_success(f"Processed {total_handled}/{stats['total_tracks']} songs", telegram_summary)
     
     except Exception as e:
         title = "❌ Classification Error"
