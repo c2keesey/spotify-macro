@@ -20,8 +20,8 @@ def save_current_track():
     # Define the required scopes
     scope = "user-read-currently-playing user-library-modify user-library-read"
 
-    # Set up the Spotify client using the new utilities
-    sp = initialize_spotify_client(scope, "save_current_cache")
+    # Set up the Spotify client using the master cache
+    sp = initialize_spotify_client(scope)
 
     try:
         # Get the currently playing track

@@ -27,3 +27,6 @@ Performance & Testing:
 - [ ] Make test account reset more efficient (currently too slow - takes multiple minutes)
 - [ ] Investigate single-playlist artist sync issue - all tracks being skipped as staging playlists
 - [ ] Test actual single-playlist artist movement by manually placing some tracks first
+- [ ] make reset and sync more efficient -- update and compare instead of delete
+
+- [ ] create version control for system

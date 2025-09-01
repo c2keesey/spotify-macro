@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """
 Telegram notification utilities for Spotify automations.
+
+Removes path hacks and treats Telegram as an optional dependency.
+If `telegram_toolkit` is not installed, notifications are disabled gracefully.
 """
-import sys
-import os
 from pathlib import Path
 from typing import Optional
 
-# Add telegram-cron to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "telegram-cron"))
-
-from telegram_toolkit import TelegramNotifier
+try:
+    # Prefer a proper installed package if available
+    from telegram_toolkit import TelegramNotifier  # type: ignore
+    _TELEGRAM_AVAILABLE = True
+except Exception:
+    TelegramNotifier = None  # type: ignore
+    _TELEGRAM_AVAILABLE = False
 
 
 class SpotifyTelegramNotifier:
@@ -25,13 +29,17 @@ class SpotifyTelegramNotifier:
         """
         self.automation_name = automation_name
         
-        try:
-            # Load from project root .env file
-            env_file = Path(__file__).parent.parent / ".env"
-            self.notifier = TelegramNotifier(env_file=str(env_file) if env_file.exists() else None)
-            self.enabled = True
-        except (ValueError, Exception) as e:
-            print(f"Telegram notifications disabled: {e}")
+        # Load from project root .env file if package is present
+        env_file = Path(__file__).parent.parent / ".env"
+        if _TELEGRAM_AVAILABLE:
+            try:
+                self.notifier = TelegramNotifier(env_file=str(env_file) if env_file.exists() else None)  # type: ignore
+                self.enabled = True
+            except Exception as e:
+                print(f"Telegram notifications disabled: {e}")
+                self.enabled = False
+        else:
+            print("Telegram notifications disabled: telegram_toolkit not installed")
             self.enabled = False
     
     def send_success(self, message: str, details: Optional[str] = None) -> bool:

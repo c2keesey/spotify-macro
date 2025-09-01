@@ -19,7 +19,7 @@ SPOTIFY_ENV = os.environ.get("SPOTIFY_ENV", "test")
 # Load environment-specific configuration
 env_file = PROJECT_ROOT / f".env.{SPOTIFY_ENV}"
 if env_file.exists():
-    load_dotenv(env_file)
+    load_dotenv(env_file, override=True)  # Override any existing env vars
     print(f"Loaded environment: {SPOTIFY_ENV}")
 else:
     # Fall back to default .env file

@@ -18,127 +18,19 @@ This automation is designed to work with the "new" playlist as the source by def
 """
 
 import json
-import re
-import unicodedata
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List, Set, Optional
 
 from common.config import get_config_value
 from common.spotify_utils import initialize_spotify_client, spotify_api_call_with_retry
 from common.utils.notifications import send_notification_via_file
 from common.telegram_utils import SpotifyTelegramNotifier
+from common.flow_character_utils import extract_flow_characters, is_parent_playlist
 
 
-def extract_flow_characters(playlist_name: str) -> Tuple[List[str], List[str]]:
-    """
-    Extract special characters from playlist name that indicate flow relationships.
-    
-    This is adapted from the playlist_flow automation to identify parent/child playlists.
-    
-    Args:
-        playlist_name: Name of the playlist
-        
-    Returns:
-        Tuple of (parent_chars, child_chars) where:
-        - parent_chars: Special chars before normal letters (this playlist is parent for these chars)
-        - child_chars: Special chars after normal letters (this playlist flows into parents with these chars)
-    """
-    def normalize_and_clean(text: str) -> str:
-        """Normalize Unicode and strip problematic zero-width characters"""
-        normalized = unicodedata.normalize('NFC', text)
-        
-        zero_width_chars = [
-            '\u200B',  # Zero Width Space
-            '\u200C',  # Zero Width Non-Joiner
-            '\u2060',  # Word Joiner
-            '\uFEFF',  # Zero Width No-Break Space
-        ]
-        
-        cleaned = normalized
-        for zwc in zero_width_chars:
-            cleaned = cleaned.replace(zwc, '')
-        
-        return cleaned
-    
-    def is_special_char(char: str) -> bool:
-        """Check if character is special (not normal keyboard chars)"""
-        if char.isalnum() or char.isspace():
-            return False
-        normal_punctuation = '!@#$%^&*()_+-=[]{}|;\':",./<>?`~'
-        return char not in normal_punctuation
-    
-    def is_normal_letter(char: str) -> bool:
-        """Check if character is a normal letter (a-z, A-Z)"""
-        return char.isalpha()
-    
-    # Normalize and clean the playlist name
-    clean_name = normalize_and_clean(playlist_name)
-    
-    # Strip test prefix if present
-    test_prefixes = ["🧪TEST_"]
-    for prefix in test_prefixes:
-        if clean_name.startswith(prefix):
-            clean_name = clean_name[len(prefix):]
-            break
-    
-    if not clean_name.strip():
-        return [], []
-    
-    # Simple character iteration (fallback from complex grapheme clusters)
-    clusters = list(clean_name)
-    
-    parent_chars = []
-    child_chars = []
-    
-    # Find first normal letter position
-    first_letter_pos = None
-    for i, cluster in enumerate(clusters):
-        if any(is_normal_letter(c) for c in cluster):
-            first_letter_pos = i
-            break
-    
-    # Find last normal letter position
-    last_letter_pos = None
-    for i in range(len(clusters) - 1, -1, -1):
-        if any(is_normal_letter(c) for c in clusters[i]):
-            last_letter_pos = i
-            break
-    
-    if first_letter_pos is None or last_letter_pos is None:
-        return parent_chars, child_chars
-    
-    # Parent chars: special chars before first normal letter
-    for i in range(first_letter_pos):
-        cluster = clusters[i]
-        if is_special_char(cluster):
-            parent_chars.append(cluster)
-    
-    # Child chars: special chars after last normal letter
-    for i in range(last_letter_pos + 1, len(clusters)):
-        cluster = clusters[i]
-        if is_special_char(cluster):
-            child_chars.append(cluster)
-    
-    # Check for self-reference and return empty if found
-    if parent_chars and child_chars:
-        if any(p_char == c_char for p_char in parent_chars for c_char in child_chars):
-            return [], []
-    
-    return parent_chars, child_chars
-
-
-def is_parent_playlist(playlist_name: str) -> bool:
-    """
-    Check if a playlist is a parent playlist (has special characters at the beginning).
-    
-    Args:
-        playlist_name: Name of the playlist
-        
-    Returns:
-        True if the playlist is a parent playlist
-    """
-    parent_chars, _ = extract_flow_characters(playlist_name)
-    return len(parent_chars) > 0
+"""
+Deduplicated: use common.flow_character_utils for flow parsing and parent detection.
+"""
 
 
 def load_playlist_data(sp) -> Dict[str, Dict]:

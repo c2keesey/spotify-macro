@@ -30,6 +30,7 @@ from common.spotify_utils import initialize_spotify_client, spotify_api_call_wit
 from common.utils.notifications import send_notification_via_file
 from common.telegram_utils import SpotifyTelegramNotifier
 from common.genre_classification_utils import classify_track, find_best_target_playlist
+from common.constants import UNCLASSIFIED_PLAYLIST_NAME
 
 # Import artist matching utilities (we'll reuse the flow character logic)
 try:
@@ -228,17 +229,18 @@ def remove_single_track_from_playlist(sp, playlist_id: str, track_id: str):
     try:
         # Get current tracks to find position
         current_tracks = spotify_api_call_with_retry(
-            sp.playlist_items, playlist_id, fields="items.track.id"
+            sp.playlist_items, playlist_id, fields="items.track.id,items.track.uri"
         )
         
         # Find the position of this track (take first occurrence)
         for i, item in enumerate(current_tracks['items']):
-            if item['track']['id'] == track_id:
-                # Remove this specific occurrence
+            if item['track'] and item['track']['id'] == track_id:
+                # Remove this specific occurrence using URI with position
+                track_uri = item['track']['uri']
                 spotify_api_call_with_retry(
                     sp.playlist_remove_specific_occurrences_of_items,
                     playlist_id,
-                    [{"positions": [i]}]
+                    [{"uri": track_uri, "positions": [i]}]
                 )
                 return
                 
@@ -250,7 +252,7 @@ def get_or_create_unclassified_playlist(sp, playlists_dict: Dict[str, Dict]) -> 
     """Get existing or create new Unclassified playlist."""
     # Check if it already exists
     for playlist_id, playlist_data in playlists_dict.items():
-        if playlist_data["name"].lower() == "unclassified":
+        if playlist_data["name"].lower() == UNCLASSIFIED_PLAYLIST_NAME.lower():
             return playlist_id
     
     # Create new one
@@ -259,7 +261,7 @@ def get_or_create_unclassified_playlist(sp, playlists_dict: Dict[str, Dict]) -> 
         playlist_response = spotify_api_call_with_retry(
             sp.user_playlist_create,
             user_id,
-            "Unclassified",
+            UNCLASSIFIED_PLAYLIST_NAME,
             public=False,
             description="Songs that couldn't be automatically classified"
         )
@@ -268,7 +270,7 @@ def get_or_create_unclassified_playlist(sp, playlists_dict: Dict[str, Dict]) -> 
         
         # Add to playlists_dict for tracking
         playlists_dict[unclassified_playlist_id] = {
-            "name": "Unclassified",
+            "name": UNCLASSIFIED_PLAYLIST_NAME,
             "tracks": []
         }
         

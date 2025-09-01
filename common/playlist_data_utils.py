@@ -372,3 +372,34 @@ class PlaylistDataLoader:
             raise ValueError(f"Unknown sampling strategy: {strategy}")
         
         return dict(sampled_items)
+    
+    @staticmethod
+    def load_artist_genres(data_dir: Optional[Union[str, Path]] = None) -> Dict[str, Dict]:
+        """
+        Load artist genre data from artist_genres.json.
+        
+        Args:
+            data_dir: Directory containing artist_genres.json. Uses default if None.
+            
+        Returns:
+            Dictionary mapping artist_id to artist data including genres
+        """
+        if data_dir is None:
+            # Get project root data directory (not playlists subdirectory)
+            current_file = Path(__file__).resolve()
+            project_root = current_file.parent.parent
+            data_dir = project_root / "data"
+        else:
+            data_dir = Path(data_dir)
+        
+        artist_genres_file = data_dir / "artist_genres.json"
+        
+        if not artist_genres_file.exists():
+            return {}
+        
+        try:
+            with open(artist_genres_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading artist genres: {e}")
+            return {}

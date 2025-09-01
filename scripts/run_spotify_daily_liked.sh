@@ -6,10 +6,22 @@
 # Ensure we're using the correct working directory
 cd "$(dirname "$0")/.." || exit 1
 
-# Load environment variables from .env file
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+# Determine environment (default to prod for production automations)
+SPOTIFY_ENV="${SPOTIFY_ENV:-prod}"
+
+# Load environment-specific configuration
+ENV_FILE=".env.$SPOTIFY_ENV"
+if [ -f "$ENV_FILE" ]; then
+    source "$ENV_FILE"
+    echo "Loaded environment: $SPOTIFY_ENV"
+else
+    echo "Error: Environment file not found at $ENV_FILE"
+    echo "Available environments: test, prod"
+    exit 1
 fi
+
+# Export environment variable for Python scripts
+export SPOTIFY_ENV
 
 # Default to Python in PATH if PYTHON_PATH not set
 PYTHON="${PYTHON_PATH:-python3}"

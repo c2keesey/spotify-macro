@@ -7,10 +7,22 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Load environment variables
-if [ -f "$PROJECT_ROOT/.env" ]; then
-    source "$PROJECT_ROOT/.env"
+# Determine environment (default to prod for production automations)
+SPOTIFY_ENV="${SPOTIFY_ENV:-prod}"
+
+# Load environment-specific configuration
+ENV_FILE="$PROJECT_ROOT/.env.$SPOTIFY_ENV"
+if [ -f "$ENV_FILE" ]; then
+    source "$ENV_FILE"
+    echo "Loaded environment: $SPOTIFY_ENV"
+else
+    echo "Error: Environment file not found at $ENV_FILE"
+    echo "Available environments: test, prod"
+    exit 1
 fi
+
+# Export environment variable for Python scripts
+export SPOTIFY_ENV
 
 # Set up virtual environment
 VENV_PATH="${VENV_PATH:-$PROJECT_ROOT/.venv}"

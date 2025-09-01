@@ -31,8 +31,8 @@ def save_current_track_with_genre():
     # Define the required scopes (includes playlist modification for genre sorting)
     scope = "user-read-currently-playing user-library-modify user-library-read playlist-modify-public playlist-modify-private playlist-read-private"
 
-    # Set up the Spotify client using the unified cache
-    sp = initialize_spotify_client(scope, "save_current_cache")
+    # Set up the Spotify client using the master cache
+    sp = initialize_spotify_client(scope)
 
     try:
         # Get the currently playing track
@@ -126,7 +126,7 @@ def test_genre_classification(track_id: str = None):
         track_id: Optional specific track ID to test. Uses currently playing if None.
     """
     scope = "user-read-currently-playing playlist-read-private"
-    sp = initialize_spotify_client(scope, "save_current_cache")
+    sp = initialize_spotify_client(scope)
     
     try:
         if track_id is None:

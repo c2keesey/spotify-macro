@@ -10,7 +10,7 @@ This repository has been reorganized for better structure and extensibility:
 spotify-automation/
 ├── automations/          # Core automation functionality (renamed from macros/)
 ├── analysis/             # Research and analysis scripts (organized by category)
-│   ├── genre/           # Genre classification research
+│   ├── genre/           # Genre classification research and testing framework
 │   ├── playlist/        # Playlist analysis and patterns
 │   └── optimization/    # Performance optimization
 ├── data/                # Consolidated data management (renamed from _data/)
@@ -131,6 +131,37 @@ Follow the structured feature development process:
 
 See `docs/workflow.md` for complete workflow details.
 
+## SSH-Compatible Authentication
+
+**Quick Auth Setup (SSH-Friendly):**
+```bash
+# Get auth URL for any environment
+SPOTIFY_ENV=test uv run python scripts/spotify_auth.py url
+SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py url
+
+# Complete auth with code from browser (works in SSH)
+SPOTIFY_ENV=test uv run python scripts/spotify_auth.py auth --code '<auth_code>'
+SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py auth --code '<auth_code>'
+
+# Test authentication
+SPOTIFY_ENV=test uv run python scripts/spotify_auth.py test
+SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py test
+```
+
+**SSH Workflow:**
+1. Run `url` command to get auth URL
+2. Open URL in any browser (iPad, iPhone, computer)
+3. After authorization, you'll see "This site can't be reached" - **this is normal!**
+4. Copy the authorization code from the URL bar (after `code=`)
+5. Run `auth --code` command with the copied code
+
+**Authentication Cache:**
+- **Test Environment**: `/common/.spotify_master_cache_test`
+- **Prod Environment**: `/common/.spotify_master_cache_prod`
+- **Persistence**: Works across all SSH sessions and environments
+- **Security**: Files have 600 permissions (user-only access)
+- **Auto-Refresh**: Tokens automatically renewed when needed
+
 ## Environment Handling (CRITICAL)
 
 **Always use `common/config.py` for environment detection:**
@@ -149,10 +180,60 @@ environment = get_config_value("environment")  # Wrong key!
 - Values: `test` | `prod` (defaults to `test` for safety)
 - **Critical**: All environment detection MUST use `CURRENT_ENV` from config.py
 
+**Environment Setup:**
+- **Test**: CLIENT_ID `3262aa8a...`, redirect port 8889
+- **Prod**: CLIENT_ID `80929705...`, redirect port 8888
+- Each environment has separate Spotify app configurations
+
 **Cache Environment Sync:**
 - Test cache automatically cleaned after test runs
 - Use `scripts/test_cleanup_hook.py` in CI/CD pipelines
 - Cache tagged with environment to prevent cross-contamination
+
+## Genre Classification Testing Framework
+
+**Extensible Algorithm Testing:**
+```bash
+# Run classification algorithm comparison
+uv run analysis/genre/test_classification_comparison.py --verbose
+
+# Quick testing with limited tracks
+uv run analysis/genre/test_classification_comparison.py --limit-tracks 100
+```
+
+**Framework Components:**
+- `analysis/genre/classification_framework.py` - Abstract base classes for extensible algorithm testing
+- `analysis/genre/classification_metrics.py` - Data loading, train/test splitting, evaluation utilities
+- `analysis/genre/current_classifier.py` - Current artist-only system implementation
+- `analysis/genre/electronic_specialist_classifier.py` - Electronic-Specialist hybrid classifier
+- `analysis/genre/test_classification_comparison.py` - Main testing harness
+
+**Key Features:**
+- **Extensible Design**: Easy to add new algorithms via `BaseClassifier` interface
+- **Proper Train/Test Split**: Playlist-level splitting prevents data leakage
+- **Comprehensive Metrics**: Accuracy, precision, recall, F1-score, coverage per folder
+- **Cached Data Integration**: Uses existing `data/cache/` and `data/playlist_folders.json`
+- **Performance Tracking**: Processing time and confidence score analysis
+
+**Usage Example:**
+```python
+# Add new classifier
+class NewMLClassifier(BaseClassifier):
+    def train(self, train_data): pass
+    def predict(self, track_id): pass
+
+# Test with existing framework
+framework.add_classifier(NewMLClassifier())
+results = framework.evaluate_all_classifiers()
+```
+
+**Current Results (Optimized Multi-Class Composite Classifier):**
+- **F1 Score**: 66.2% (optimal balance of precision/recall)
+- **Coverage**: 95.4% (1,630/1,708 tracks classified)
+- **Multi-Class Support**: 18.9% of tracks assigned to multiple folders
+- **Average Assignments**: 1.34 folders per track
+- **Multi-Class Threshold**: 0.05 (optimized parameter)
+- **Training Data**: 8,661 tracks across 14 folders with multi-folder training data
 
 ## Documentation Practices
 

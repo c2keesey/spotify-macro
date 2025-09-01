@@ -22,7 +22,11 @@ from spotipy.oauth2 import SpotifyOAuth
 
 def get_master_cache_path():
     """Get path to master auth cache that all automations will share."""
-    return PROJECT_ROOT / "common" / f".spotify_master_cache_{CURRENT_ENV}"
+    # SSH-friendly: Use absolute path to avoid any path resolution issues
+    cache_dir = PROJECT_ROOT / "common"
+    cache_dir.mkdir(exist_ok=True)  # Ensure directory exists
+    cache_path = cache_dir / f".spotify_master_cache_{CURRENT_ENV}"
+    return cache_path
 
 
 def get_all_scopes():
@@ -48,10 +52,10 @@ def get_all_scopes():
     ])
 
 
-def ssh_friendly_auth():
+def ssh_friendly_auth(callback_url=None):
     """
     SSH-friendly authentication flow.
-    Prints URLs clearly and accepts manual input.
+    Prints URLs clearly and accepts manual input or URL parameter.
     """
     cache_path = get_master_cache_path()
     scopes = get_all_scopes()
@@ -60,6 +64,10 @@ def ssh_friendly_auth():
     print("=" * 50)
     print(f"Environment: {CURRENT_ENV}")
     print(f"Cache file: {cache_path}")
+    print(f"Cache dir exists: {cache_path.parent.exists()}")
+    print(f"Cache dir writable: {os.access(cache_path.parent, os.W_OK)}")
+    print(f"Client ID: {CLIENT_ID[:8]}..." if CLIENT_ID else "❌ Missing CLIENT_ID")
+    print(f"Client Secret: {'✅ Set' if CLIENT_SECRET else '❌ Missing CLIENT_SECRET'}")
     print(f"Scopes: {scopes}")
     print()
     
@@ -70,10 +78,11 @@ def ssh_friendly_auth():
                 token_info = json.load(f)
             
             # Create auth manager to test/refresh token
+            redirect_uri = "http://127.0.0.1:8889/callback" if CURRENT_ENV == "test" else "http://127.0.0.1:8888/callback"
             auth_manager = SpotifyOAuth(
                 client_id=CLIENT_ID,
                 client_secret=CLIENT_SECRET,
-                redirect_uri="http://127.0.0.1:8889/callback",
+                redirect_uri=redirect_uri,
                 scope=scopes,
                 cache_path=str(cache_path)
             )
@@ -98,11 +107,14 @@ def ssh_friendly_auth():
     print("🌐 Manual OAuth Flow for SSH")
     print("-" * 30)
     
+    # Always use the configured redirect URI (matches your Spotify app settings)
+    redirect_uri = "http://127.0.0.1:8889/callback" if CURRENT_ENV == "test" else "http://127.0.0.1:8888/callback"
+    
     # Create auth manager
     auth_manager = SpotifyOAuth(
         client_id=CLIENT_ID,
         client_secret=CLIENT_SECRET,
-        redirect_uri="http://127.0.0.1:8889/callback",
+        redirect_uri=redirect_uri,
         scope=scopes,
         cache_path=str(cache_path)
     )
@@ -110,31 +122,73 @@ def ssh_friendly_auth():
     # Get authorization URL
     auth_url = auth_manager.get_authorize_url()
     
-    print("STEP 1: Open this URL in your LOCAL browser:")
+    print("STEP 1: Open this URL in your browser (any device):")
     print()
     print("🔗 " + auth_url)
     print()
-    print("STEP 2: After authorizing, you'll be redirected to a URL like:")
-    print("   http://127.0.0.1:8889/callback?code=AQ...")
+    print("STEP 2: After authorizing, you'll see a 'This site can't be reached' error.")
+    print("        This is EXPECTED when using SSH! Don't worry.")
     print()
-    print("STEP 3: Copy and paste that ENTIRE redirect URL below:")
+    print("STEP 3: Look at the URL in your browser's address bar. It will look like:")
+    print(f"   {redirect_uri}?code=AQA...")
+    print()
+    print("STEP 4: Copy the 'code' parameter from that URL (the part after 'code=')")
+    print("        Example: If URL is http://127.0.0.1:8889/callback?code=AQA123...")
+    print("                 Copy: AQA123...")
     print()
     
-    # Get callback URL from user
-    while True:
+    # If callback URL provided as parameter, use it directly
+    if callback_url:
+        print(f"📝 Using provided callback URL or code")
+    else:
+        print("STEP 5: Paste EITHER:")
+        print("        - The full callback URL from your browser, OR")
+        print("        - Just the authorization code (the part after 'code=')")
+        print("(Or press Ctrl+C to exit and run with --url or --code parameter)")
+        print()
+    
+    # Get callback URL from user or parameter
+    max_attempts = 3
+    attempts = 0
+    
+    while attempts < max_attempts:
         try:
-            callback_url = input("Paste the callback URL here: ").strip()
+            if not callback_url:
+                try:
+                    user_input = input("Paste callback URL or authorization code: ").strip()
+                    callback_url = user_input
+                except (EOFError, KeyboardInterrupt):
+                    print("\n💡 TIP: You can also run this script with a callback URL or code:")
+                    print(f"   SPOTIFY_ENV={CURRENT_ENV} uv run python scripts/spotify_auth.py auth --url '<callback_url>'")
+                    print(f"   SPOTIFY_ENV={CURRENT_ENV} uv run python scripts/spotify_auth.py auth --code '<auth_code>'")
+                    return False
             
-            if not callback_url.startswith("http://127.0.0.1:8889/callback?code="):
-                print("❌ Invalid URL format. Should start with 'http://127.0.0.1:8889/callback?code='")
-                continue
-            
-            # Extract code from URL
-            parsed_url = urlparse(callback_url)
-            code = parse_qs(parsed_url.query).get('code', [None])[0]
+            # Handle both full URLs and just authorization codes
+            code = None
+            if callback_url.startswith(("http://", "https://")):
+                # Full URL provided
+                expected_prefix = f"{redirect_uri}?code="
+                if not callback_url.startswith(expected_prefix):
+                    print(f"❌ Invalid URL format. Should start with '{expected_prefix}'")
+                    if len(sys.argv) > 2:  # If URL was provided as parameter, don't retry
+                        return False
+                    callback_url = None
+                    attempts += 1
+                    continue
+                
+                # Extract code from URL
+                parsed_url = urlparse(callback_url)
+                code = parse_qs(parsed_url.query).get('code', [None])[0]
+            else:
+                # Assume it's just the authorization code
+                code = callback_url.strip()
             
             if not code:
                 print("❌ No authorization code found in URL")
+                if callback_url:  # If URL was provided as parameter, don't retry
+                    return False
+                callback_url = None
+                attempts += 1
                 continue
             
             print(f"📝 Found authorization code: {code[:20]}...")
@@ -159,14 +213,25 @@ def ssh_friendly_auth():
                 return True
             else:
                 print("❌ Failed to get access token")
-                return False
+                if callback_url:  # If URL was provided as parameter, don't retry
+                    return False
+                callback_url = None
+                attempts += 1
+                continue
                 
         except KeyboardInterrupt:
             print("\n❌ Authentication cancelled")
             return False
         except Exception as e:
             print(f"❌ Error: {e}")
+            if callback_url:  # If URL was provided as parameter, don't retry
+                return False
             print("Please try again with the correct callback URL")
+            callback_url = None
+            attempts += 1
+    
+    print(f"❌ Failed after {max_attempts} attempts")
+    return False
 
 
 def test_authentication():
@@ -179,10 +244,11 @@ def test_authentication():
     
     try:
         # Test with the master cache
+        redirect_uri = "http://127.0.0.1:8889/callback" if CURRENT_ENV == "test" else "http://127.0.0.1:8888/callback"
         auth_manager = SpotifyOAuth(
             client_id=CLIENT_ID,
             client_secret=CLIENT_SECRET,
-            redirect_uri="http://127.0.0.1:8889/callback",
+            redirect_uri=redirect_uri,
             scope=get_all_scopes(),
             cache_path=str(cache_path)
         )
@@ -211,12 +277,49 @@ if __name__ == "__main__":
         command = sys.argv[1]
         
         if command == "auth":
-            success = ssh_friendly_auth()
+            # Check for --url or --code parameter
+            callback_url = None
+            if len(sys.argv) > 3 and sys.argv[2] == "--url":
+                callback_url = sys.argv[3]
+            elif len(sys.argv) > 3 and sys.argv[2] == "--code":
+                callback_url = sys.argv[3]  # Will be treated as auth code
+            elif len(sys.argv) > 2 and sys.argv[2].startswith("--url="):
+                callback_url = sys.argv[2][6:]  # Remove --url= prefix
+            elif len(sys.argv) > 2 and sys.argv[2].startswith("--code="):
+                callback_url = sys.argv[2][7:]  # Remove --code= prefix
+            
+            success = ssh_friendly_auth(callback_url)
             sys.exit(0 if success else 1)
             
         elif command == "test":
             success = test_authentication()
             sys.exit(0 if success else 1)
+            
+        elif command == "url":
+            # Just print the auth URL without interactive flow
+            cache_path = get_master_cache_path()
+            scopes = get_all_scopes()
+            redirect_uri = "http://127.0.0.1:8889/callback" if CURRENT_ENV == "test" else "http://127.0.0.1:8888/callback"
+            
+            auth_manager = SpotifyOAuth(
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+                redirect_uri=redirect_uri,
+                scope=scopes,
+                cache_path=str(cache_path)
+            )
+            
+            auth_url = auth_manager.get_authorize_url()
+            print(f"🔗 Auth URL for {CURRENT_ENV} environment:")
+            print(auth_url)
+            print()
+            print("📱 SSH/Remote Instructions:")
+            print("1. Open the URL above in any browser")
+            print("2. After authorization, you'll see 'This site can't be reached' - this is normal!")
+            print("3. Copy the authorization code from the URL in your browser")
+            print("4. Run one of these commands:")
+            print(f"   SPOTIFY_ENV={CURRENT_ENV} uv run python scripts/spotify_auth.py auth --code '<auth_code>'")
+            print(f"   SPOTIFY_ENV={CURRENT_ENV} uv run python scripts/spotify_auth.py auth --url '<full_callback_url>'")
             
         elif command == "status":
             cache_path = get_master_cache_path()
@@ -231,16 +334,20 @@ if __name__ == "__main__":
             
         else:
             print(f"Unknown command: {command}")
-            print("Available commands: auth, test, status")
+            print("Available commands: auth, test, status, url")
     else:
         print("Unified Spotify Authentication")
-        print("Usage: python scripts/spotify_auth.py <command>")
+        print("Usage: python scripts/spotify_auth.py <command> [options]")
         print()
         print("Commands:")
-        print("  auth    - Run SSH-friendly authentication flow")
-        print("  test    - Test existing authentication")  
-        print("  status  - Show authentication status")
+        print("  auth [--url <callback_url>|--code <auth_code>]  - Run SSH-friendly authentication flow")
+        print("  url                                             - Print auth URL only (no interactive input)")
+        print("  test                                            - Test existing authentication")  
+        print("  status                                          - Show authentication status")
         print()
         print("Examples:")
+        print("  SPOTIFY_ENV=test uv run python scripts/spotify_auth.py url")
         print("  SPOTIFY_ENV=test uv run python scripts/spotify_auth.py auth")
+        print("  SPOTIFY_ENV=test uv run python scripts/spotify_auth.py auth --url 'http://127.0.0.1:8889/callback?code=...'")
+        print("  SPOTIFY_ENV=test uv run python scripts/spotify_auth.py auth --code 'AQA123...'")
         print("  SPOTIFY_ENV=test uv run python scripts/spotify_auth.py test")

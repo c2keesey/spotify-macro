@@ -1,64 +1,35 @@
 # macOS Spotify Automations
 
-A collection of macOS automations and analysis tools for Spotify, featuring intelligent **bidirectional flow** as a core organizational system.
+Minimal, accurate, and organized set of Spotify automations for macOS.
 
-## Overview
+What works today:
+- Playlist Flow (child → parent via special characters)
+- Artist Matching (single‑playlist artist routing from staging)
+- Staging Classification (artist matching first, genre fallback)
+- Daily Liked Songs (collects recently liked tracks)
+- Save Current Track (optionally with simple genre sorting)
 
-This project provides a structured framework for creating various Spotify automations on macOS. The centerpiece is an intelligent **bidirectional flow system** that automatically organizes your music collection:
+Requirements
+- macOS, Python 3.8+
+- UV (https://github.com/astral-sh/uv)
+- Spotify app credentials in `.env.test` / `.env.prod`
 
-### 🔄 **Featured: Bidirectional Flow System**
+Authenticate (SSH‑friendly)
+- Test: `SPOTIFY_ENV=test uv run python scripts/spotify_auth.py url`
+- Then complete: `SPOTIFY_ENV=test uv run python scripts/spotify_auth.py auth --code '<auth_code>'`
+- Repeat for prod with `SPOTIFY_ENV=prod`
 
-**⬆️ Upward Flow (Playlist Flow)**: Automatically promotes curated music up the hierarchy
-- Child playlists → Parent collections using special naming conventions
-- **Status**: ✅ Fully implemented with comprehensive testing
+Run
+- Playlist flow: `SPOTIFY_ENV=test uv run python -m automations.spotify.playlist_flow.action`
+- Artist matching: `SPOTIFY_ENV=test uv run python -m automations.spotify.artist_matching.action`
+- Staging classification: `SPOTIFY_ENV=test uv run python -m automations.spotify.staging_classification.action`
+- Daily liked: `SPOTIFY_ENV=test uv run python -m automations.spotify.daily_liked_songs.action`
+- Save current: `SPOTIFY_ENV=test uv run python -m automations.spotify.save_current`
+- With genre: `SPOTIFY_ENV=test uv run python -m automations.spotify.save_current_with_genre`
 
-**⬇️ Downward Flow (Classification Flow)**: Intelligently distributes new music to appropriate playlists
-- Liked songs → Staging → Multi-strategy classification → Target playlists
-- **Status**: 🔧 Core components implemented, integration in progress
-
-### 🎯 **Available Automations**
-
-- **Spotify Save Current**: Save currently playing track with keyboard shortcut
-- **Playlist Flow**: Automatic hierarchical music promotion using special naming conventions
-- **Artist Matching**: Single-playlist artist detection for intelligent music distribution
-- **Genre Classification**: Multi-class composite classifier with 66% F1 score and 95% coverage
-- **Daily Liked Songs**: Automatic processing of recently liked songs
-- **Analysis Tools**: Collection pattern analysis and optimization research
-
-The modular design makes it easy to add new automations while leveraging the flow system for intelligent organization.
-
-## Architecture Features
-
-- **Bidirectional Flow System**: Seamless upward promotion and downward classification
-- **Modular Design**: Extensible framework for creating specialized automations
-- **Intelligent Classification**: Multi-strategy approach combining artist patterns, genre analysis, and audio features
-- **Playlist Hierarchy Respect**: Smart targeting that works with playlist flow relationships
-- **macOS Integration**: Automator workflows and keyboard shortcuts
-- **Robust Error Handling**: Graceful failure management with detailed notifications
-- **Performance Optimization**: Efficient processing of large music collections
-- **Modern Python Architecture**: UV package manager with comprehensive testing
-
-## Prerequisites
-
-- macOS
-- Python 3.7 or later
-- UV package manager (https://github.com/astral-sh/uv)
-- Specific requirements for individual automations (e.g., Spotify Premium account)
-
-## Setup
-
-1. Clone this repository:
-
-   ```
-   git clone https://github.com/yourusername/macos-automations.git
-   cd macos-automations
-   ```
-
-2. Install UV if you don't have it already:
-
-   ```
-   curl -fsSL https://astral.sh/uv/install.sh | bash
-   ```
+Notes
+- Telegram notifications are optional. If `telegram_toolkit` is not installed, notifications are disabled gracefully.
+- Caches and large data are not packaged or committed.
 
 3. Set up the virtual environment and install dependencies:
 
