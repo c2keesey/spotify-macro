@@ -12,7 +12,6 @@ This module eliminates 400+ lines of duplicated code across multiple files.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any, Union
 from collections import defaultdict
@@ -25,11 +24,10 @@ class PlaylistDataLoader:
     
     @staticmethod
     def get_data_directory() -> Path:
-        """Get the standard data directory path."""
+        """Get the directory containing normalized playlist cache files."""
         current_file = Path(__file__).resolve()
-        # Navigate up to project root, then to data directory
         project_root = current_file.parent.parent
-        return project_root / "data" / "playlists"
+        return project_root / "data" / "library" / "playlists"
     
     @staticmethod
     def load_playlists_from_directory(
@@ -56,69 +54,104 @@ class PlaylistDataLoader:
             data_dir = PlaylistDataLoader.get_data_directory()
         else:
             data_dir = Path(data_dir)
-        
-        if not data_dir.exists():
-            raise FileNotFoundError(f"Data directory not found: {data_dir}")
-        
-        playlists_dict = {}
+
+        manifest_path = data_dir.parent / "manifest.json"
+
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                "No playlist cache found. Run common.library_sync.sync_prod_library_cache() "
+                "to populate data/library/."
+            )
+
+        return PlaylistDataLoader._load_from_manifest(
+            data_dir=data_dir,
+            manifest_path=manifest_path,
+            limit=limit,
+            normalize_tracks=normalize_tracks,
+            include_empty=include_empty,
+            verbose=verbose,
+        )
+
+    @staticmethod
+    def _load_from_manifest(
+        *,
+        data_dir: Path,
+        manifest_path: Path,
+        limit: Optional[int],
+        normalize_tracks: bool,
+        include_empty: bool,
+        verbose: bool,
+    ) -> Dict[str, Dict]:
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
+
+        playlists_dict: Dict[str, Dict] = {}
         loaded_count = 0
-        
+
+        playlists_meta = manifest.get("playlists", {})
+
         if verbose:
-            print("Loading playlist data from local files...")
-        
-        for playlist_file in data_dir.glob("*.json"):
-            # Skip Python cache files
-            if playlist_file.name == "__init__.py":
-                continue
-                
-            # Check limit
+            print("Loading playlist data from normalized library cache...")
+
+        for playlist_id, meta in playlists_meta.items():
             if limit is not None and loaded_count >= limit:
                 break
-            
-            try:
-                with open(playlist_file, 'r', encoding='utf-8') as f:
-                    playlist_data = json.load(f)
-                
-                playlist_id = playlist_data.get("playlist_id", playlist_file.stem)
-                playlist_name = playlist_data.get("playlist_name", playlist_file.stem)
-                
-                # Process tracks
-                tracks = []
-                if normalize_tracks:
-                    for track_data in playlist_data.get("tracks", []):
-                        normalized_track = PlaylistDataLoader.normalize_track_data(track_data)
-                        if normalized_track:
-                            tracks.append(normalized_track)
-                else:
-                    tracks = playlist_data.get("tracks", [])
-                
-                # Skip empty playlists if requested
-                if not include_empty and len(tracks) == 0:
-                    if verbose:
-                        print(f"  Skipped '{playlist_name}' (empty)")
-                    continue
-                
-                playlists_dict[playlist_id] = {
-                    "name": playlist_name,
-                    "tracks": tracks,
-                    "total_tracks": len(tracks),
-                    "original_data": playlist_data  # Keep original for reference
-                }
-                
-                loaded_count += 1
-                
+
+            relative_path = meta.get("file") or f"{playlist_id}.json"
+            playlist_file = data_dir / Path(relative_path).name
+
+            if not playlist_file.exists():
                 if verbose:
-                    print(f"  Loaded '{playlist_name}' ({len(tracks)} tracks)")
-                    
-            except Exception as e:
-                if verbose:
-                    print(f"  Error loading {playlist_file.name}: {e}")
+                    print(f"  Missing file for playlist {playlist_id}, skipping")
                 continue
-        
+
+            try:
+                with open(playlist_file, "r", encoding="utf-8") as handle:
+                    playlist_data = json.load(handle)
+            except Exception as exc:
+                if verbose:
+                    print(f"  Error loading {playlist_file.name}: {exc}")
+                continue
+
+            playlist_name = playlist_data.get("playlist_name", meta.get("name", playlist_id))
+
+            raw_tracks = playlist_data.get("tracks", [])
+            tracks: List[Dict[str, Any]] = []
+            if normalize_tracks:
+                for track_item in raw_tracks:
+                    normalized_track = PlaylistDataLoader.normalize_track_data(track_item)
+                    if not normalized_track:
+                        continue
+                    if track_item.get("added_at"):
+                        normalized_track["added_at"] = track_item["added_at"]
+                    if track_item.get("added_by"):
+                        normalized_track["added_by"] = track_item["added_by"]
+                    tracks.append(normalized_track)
+            else:
+                tracks = raw_tracks
+
+            if not include_empty and len(tracks) == 0:
+                if verbose:
+                    print(f"  Skipped '{playlist_name}' (empty)")
+                continue
+
+            playlists_dict[playlist_id] = {
+                "name": playlist_name,
+                "tracks": tracks,
+                "total_tracks": len(tracks),
+                "metadata": playlist_data.get("metadata", {}),
+            }
+
+            loaded_count += 1
+
+            if verbose:
+                print(f"  Loaded '{playlist_name}' ({len(tracks)} tracks)")
+
         if verbose:
-            print(f"✅ Loaded {len(playlists_dict)} playlists")
-        
+            print(f"✅ Loaded {len(playlists_dict)} playlists from normalized cache")
+
         return playlists_dict
+
     
     @staticmethod
     def normalize_track_data(track_item: Dict) -> Optional[Dict]:
