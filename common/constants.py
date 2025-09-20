@@ -15,10 +15,10 @@ STAGING_PLAYLIST_NAME = "New"  # Default staging playlist name
 # Genre folder names (must match data/playlist_folders.json)
 GENRE_FOLDERS = [
     "House",
-    "Electronic", 
-    "Base",
+    "Electronic",
+    "Bass",
     "Alive",
-    "Rave", 
+    "Rave",
     "Rock",
     "Vibes",
     "Sierra",
@@ -27,14 +27,14 @@ GENRE_FOLDERS = [
     "Reggae",
     "Spiritual",
     "Soft",
-    "Chill"
+    "Chill",
 ]
 
 # Default descriptions for folder playlists
 FOLDER_PLAYLIST_DESCRIPTIONS = {
     "House": "House music tracks automatically classified from the staging playlist",
     "Electronic": "Electronic music tracks automatically classified from the staging playlist",
-    "Base": "Bass-heavy tracks automatically classified from the staging playlist", 
+    "Bass": "Bass-heavy tracks automatically classified from the staging playlist",
     "Alive": "Uplifting and energetic tracks automatically classified from the staging playlist",
     "Rave": "High-energy rave tracks automatically classified from the staging playlist",
     "Rock": "Rock music tracks automatically classified from the staging playlist",
@@ -45,5 +45,5 @@ FOLDER_PLAYLIST_DESCRIPTIONS = {
     "Reggae": "Reggae music tracks automatically classified from the staging playlist",
     "Spiritual": "Spiritual and meditative tracks automatically classified from the staging playlist",
     "Soft": "Soft and gentle tracks automatically classified from the staging playlist",
-    "Chill": "Chill and relaxing tracks automatically classified from the staging playlist"
+    "Chill": "Chill and relaxing tracks automatically classified from the staging playlist",
 }
