@@ -9,6 +9,7 @@
 
 ## Build, Test, and Development Commands
 
+- Use `uv` for all Python commands and package management tasks; do not mix in `pip` or `python -m venv`.
 - `uv run python -m automations.spotify.save_current` saves the active track and emits desktop/Telegram notifications.
 
 ## Coding Style & Naming Conventions
