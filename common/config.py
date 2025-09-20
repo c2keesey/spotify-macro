@@ -57,8 +57,6 @@ DAILY_LIKED_PLAYLIST_NAME = get_env("DAILY_LIKED_PLAYLIST_NAME", "Daily Liked So
 PLAYLIST_FLOW_ENABLED = get_env("PLAYLIST_FLOW_ENABLED", "true").lower() == "true"
 PLAYLIST_FLOW_SPECIAL_CHARS = get_env("PLAYLIST_FLOW_SPECIAL_CHARS", "♪♫♬♩♭♯♮🎵🎶⚡◆◇★☆♦♥♠♣❇️✅♻️🔱💠")
 PLAYLIST_FLOW_SKIP_CYCLES = get_env("PLAYLIST_FLOW_SKIP_CYCLES", "true").lower() == "true"
-PLAYLIST_FLOW_CACHE_TTL_HOURS = int(get_env("PLAYLIST_FLOW_CACHE_TTL_HOURS", "24"))
-PLAYLIST_FLOW_USE_CACHE = get_env("PLAYLIST_FLOW_USE_CACHE", "true").lower() == "true"
 
 # Genre Classification Configuration
 GENRE_CLASSIFICATION_ENABLED = get_env("GENRE_CLASSIFICATION_ENABLED", "true").lower() == "true"

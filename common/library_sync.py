@@ -1,19 +1,8 @@
 """Unified Spotify library cache synchronization.
 
-This module replaces the old scattered caching setup with a single entry point
-that keeps a normalized cache of the prod account's authored playlists in
-``data/library``. The cache is organized around a manifest file plus one JSON
-file per playlist containing lightweight track data.
-
-Typical usage::
-
-    from common.library_sync import sync_prod_library_cache
-
-    summary = sync_prod_library_cache()
-    print(summary["updated"], "playlists refreshed")
-
-On first run the sync function will automatically migrate any legacy playlist
-dumps that exist in ``data/playlists`` so that older tooling keeps working.
+This module keeps a manifest-driven cache of the prod account's authored
+playlists in ``data/library``. Each sync can optionally persist track listings
+per playlist or just the high-level metadata, depending on downstream needs.
 """
 
 from __future__ import annotations
@@ -70,13 +59,9 @@ def sync_prod_library_cache(
     spotify_client=None,
     playlist_ids: Optional[Iterable[str]] = None,
     limit: Optional[int] = None,
+    include_tracks: bool = True,
 ) -> Dict[str, Any]:
     """Synchronize the prod account's playlists into ``data/library``.
-
-    Args:
-        force_full_refresh: If ``True`` every authored playlist is re-fetched
-            even when the snapshot_id indicates no change.
-        spotify_client: Optional Spotipy client to reuse an existing session.
 
     Args:
         force_full_refresh: If ``True`` every authored playlist is re-fetched
@@ -86,6 +71,9 @@ def sync_prod_library_cache(
             a specific subset (useful for testing).
         limit: Optional maximum number of playlists to sync. Applied after
             filtering by ``playlist_ids``.
+        include_tracks: When ``True`` (default) the sync fetches full track
+            listings for each playlist. Set to ``False`` when only metadata is
+            required, which reduces API usage considerably.
 
     Returns:
         Summary dictionary with counts of updated, skipped, and removed
@@ -137,7 +125,11 @@ def sync_prod_library_cache(
 
         if needs_refresh:
             LOGGER.info("Refreshing playlist %s (%s)", playlist_obj["name"], playlist_id)
-            playlist_file_payload = _fetch_playlist_payload(sp, playlist_obj)
+            playlist_file_payload = _fetch_playlist_payload(
+                sp,
+                playlist_obj,
+                include_tracks=include_tracks,
+            )
             _write_playlist_file(playlist_id, playlist_file_payload)
             updated += 1
             synced_at = playlist_file_payload["synced_at"]
@@ -254,29 +246,36 @@ def _playlist_needs_refresh(
     return False
 
 
-def _fetch_playlist_payload(sp, playlist_obj: Dict[str, Any]) -> Dict[str, Any]:
+def _fetch_playlist_payload(
+    sp,
+    playlist_obj: Dict[str, Any],
+    *,
+    include_tracks: bool,
+) -> Dict[str, Any]:
     playlist_id = playlist_obj["id"]
     tracks: List[Dict[str, Any]] = []
-    offset = 0
-    limit = 100
 
-    while True:
-        response = spotify_api_call_with_retry(
-            sp.playlist_items,
-            playlist_id,
-            limit=limit,
-            offset=offset,
-            additional_types=("track",),
-        )
+    if include_tracks:
+        offset = 0
+        limit = 100
 
-        for item in response.get("items", []):
-            track_data = _serialize_playlist_item(item)
-            if track_data is not None:
-                tracks.append(track_data)
+        while True:
+            response = spotify_api_call_with_retry(
+                sp.playlist_items,
+                playlist_id,
+                limit=limit,
+                offset=offset,
+                additional_types=("track",),
+            )
 
-        if len(response.get("items", [])) < limit or not response.get("next"):
-            break
-        offset += limit
+            for item in response.get("items", []):
+                track_data = _serialize_playlist_item(item)
+                if track_data is not None:
+                    tracks.append(track_data)
+
+            if len(response.get("items", [])) < limit or not response.get("next"):
+                break
+            offset += limit
 
     payload = {
         "playlist_id": playlist_id,
@@ -293,7 +292,7 @@ def _fetch_playlist_payload(sp, playlist_obj: Dict[str, Any]) -> Dict[str, Any]:
             "image_url": _extract_cover_image(playlist_obj),
         },
         "tracks": tracks,
-        "track_count": len(tracks),
+        "track_count": len(tracks) if include_tracks else int(playlist_obj.get("tracks", {}).get("total", 0)),
     }
 
     return payload
@@ -371,3 +370,22 @@ def _write_playlist_file(playlist_id: str, payload: Dict[str, Any]) -> None:
     with open(temp_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, ensure_ascii=False)
     temp_path.replace(playlist_path)
+
+
+def load_library_manifest(*, strict: bool = True) -> Dict[str, Any]:
+    """Load the cached library manifest.
+
+    Args:
+        strict: When ``True`` (default) raise if the manifest is missing or has
+            no playlists.
+
+    Returns:
+        Parsed manifest dictionary.
+    """
+
+    manifest = _load_manifest()
+    if strict and not manifest.get("playlists"):
+        raise FileNotFoundError(
+            "Library manifest missing or empty. Run sync_prod_library_cache() first."
+        )
+    return manifest

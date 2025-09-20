@@ -24,7 +24,7 @@ from common.config import get_config_value
 from common.spotify_utils import initialize_spotify_client, spotify_api_call_with_retry
 from common.utils.notifications import send_notification_via_file
 from common.telegram_utils import SpotifyTelegramNotifier
-from common.shared_cache import get_cached_artist_data
+from common.library_sync import sync_prod_library_cache
 from common.playlist_data_utils import PlaylistDataLoader
 from common.flow_character_utils import extract_flow_characters, is_parent_playlist
 
@@ -75,12 +75,12 @@ def get_playlist_folder_mapping(playlists_dict: Dict[str, Dict],
 
 def load_playlist_data_optimized() -> Dict[str, Dict]:
     """
-    Load playlist data using cached local data for fast processing.
+    Load playlist data using the on-disk library cache for fast processing.
     
     Returns:
         Dictionary mapping playlist_id to playlist data including tracks
     """
-    print("Loading playlist data from cache...")
+    print("Loading playlist data from library cache...")
     
     # Use cached local playlist data
     playlists_dict = PlaylistDataLoader.load_playlists_from_directory(
@@ -226,14 +226,6 @@ def find_playlist_by_name(playlists_dict: Dict[str, Dict], name: str) -> Optiona
         Playlist ID if found, None otherwise
     """
     return PlaylistDataLoader.find_playlist_by_name(playlists_dict, name, case_sensitive=True)
-
-
-"""
-Deduplicated: use common.flow_character_utils for flow parsing and parent detection.
-"""
-
-
-# Note: Artist mapping functions moved to shared_cache.py and playlist_data_utils.py
 
 
 def identify_single_playlist_artist_tracks(tracks: List[Dict], 
@@ -420,17 +412,26 @@ def run_action():
     sp = initialize_spotify_client(scope, "single_artist_downflow_cache")
     
     try:
-        # Load playlist folder structure
-        print("Loading playlist folder structure...")
-        playlist_folders = load_playlist_folders()
-        
-        # Load cached artist data (much faster than full API loading)
-        print("Loading cached artist data...")
-        artist_to_playlists, single_playlist_artists = get_cached_artist_data(verbose=True)
-        
+        # Ensure local library cache is up to date (need tracks for artist mapping)
+        print("Refreshing library cache with full track data...")
+        sync_prod_library_cache(include_tracks=True, spotify_client=sp)
+
+        # Load playlist data from local cache
+        print("Loading playlist data from library cache...")
+        playlists_dict = load_playlist_data_optimized()
+
+        # Build artist mappings directly from local playlist data
+        print("Building artist-to-playlist mapping...")
+        artist_to_playlists = PlaylistDataLoader.build_artist_to_playlists_mapping(
+            playlists_dict,
+            exclude_parent_playlists=True,
+            verbose=True,
+        )
+        single_playlist_artists = PlaylistDataLoader.find_single_playlist_artists(artist_to_playlists)
+
         print(f"Found {len(artist_to_playlists)} unique artists in non-parent playlists")
         print(f"Found {len(single_playlist_artists)} single-playlist artists")
-        
+
         if not single_playlist_artists:
             title = "ℹ️ No Single-Playlist Artists"
             message = "No artists found that appear in only one playlist."
@@ -438,10 +439,10 @@ def run_action():
             send_notification_via_file(title, message, "/tmp/spotify_single_artist_downflow_result.txt")
             print(f"{title}\n{message}")
             return title, message
-        
-        # Load minimal playlist data (just need the 'new' playlist and target playlists)
-        print("Loading minimal playlist data...")
-        playlists_dict = load_playlist_data_optimized()
+
+        # Load playlist folder structure
+        print("Loading playlist folder structure...")
+        playlist_folders = load_playlist_folders()
         
         # Create playlist to folder mapping
         playlist_to_folder = get_playlist_folder_mapping(playlists_dict, playlist_folders)

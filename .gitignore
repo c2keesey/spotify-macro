@@ -1,5 +1,5 @@
 _data/
-**/*_cache*
+*.*_cache*
 *.json
 
 .DS_Store

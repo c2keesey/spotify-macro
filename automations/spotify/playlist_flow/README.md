@@ -287,8 +287,8 @@ playlist names and relationships. The automation reads directly from
 - Verify collaborative playlist permissions
 
 **Performance issues**
-- Large libraries are now optimized with caching, batching and lazy loading
-- First run will be slower (builds cache), subsequent runs are 95% faster
+- Large libraries are handled with batching and lazy loading
+- Ensure the library manifest is up to date before running (sync first if needed)
 - Monitor timeout warnings in output
 - Check network connectivity for API reliability
 - Review Spotify API rate limits (handled automatically with retry logic)
@@ -299,10 +299,10 @@ playlist names and relationships. The automation reads directly from
 - Check network stability for consistent API access
 
 **Cache issues**
-- Cache automatically expires after 24 hours (configurable with `PLAYLIST_FLOW_CACHE_TTL_HOURS`)
-- Set `PLAYLIST_FLOW_USE_CACHE=false` to disable caching for troubleshooting
-- Cache files are stored in `common/.playlist_metadata_cache_[env].json`
-- Delete cache file manually to force refresh: `rm common/.playlist_metadata_cache_*.json`
+- Run the library sync before daily flows to ensure metadata reflects recent changes
+- Re-run `sync_prod_library_cache()` if you rename playlists and want the flow graph updated
+- Library manifest lives in `data/library/manifest.json`
+- Run `sync_prod_library_cache()` whenever playlist names change to refresh metadata
 
 ### Debug Output
 The automation provides detailed progress information:
@@ -320,4 +320,4 @@ The automation provides detailed progress information:
 - `README.md` - This documentation
 - `../../../scripts/run_spotify_playlist_flow.sh` - Shell wrapper
 - `../../../common/config.py` - Configuration management
-- `../../../common/playlist_cache.py` - Playlist metadata caching system
+- `../../../common/library_sync.py` - Library cache synchronizer used across automations

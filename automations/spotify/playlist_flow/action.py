@@ -11,10 +11,10 @@ import unicodedata
 from collections import defaultdict, deque
 from typing import Dict, List, Set, Tuple, Optional
 
-from common.config import PLAYLIST_FLOW_ENABLED, PLAYLIST_FLOW_SKIP_CYCLES, PLAYLIST_FLOW_CACHE_TTL_HOURS, PLAYLIST_FLOW_USE_CACHE
+from common.config import PLAYLIST_FLOW_ENABLED, PLAYLIST_FLOW_SKIP_CYCLES
 from common.spotify_utils import initialize_spotify_client, spotify_api_call_with_retry
 from common.utils.notifications import send_notification_via_file
-from common.playlist_cache import create_playlist_cache
+from common.library_sync import load_library_manifest
 from common.telegram_utils import SpotifyTelegramNotifier
 
 # Timeout configuration (in seconds)
@@ -268,108 +268,64 @@ def load_playlist_tracks(sp, playlist_id: str) -> List[str]:
     return list(tracks_set)
 
 
-def build_playlist_relationships(sp, use_cache: bool = True) -> Tuple[Dict[str, Dict], Dict[str, List[str]], Dict[str, List[str]]]:
+def build_playlist_relationships(sp) -> Tuple[Dict[str, Dict], Dict[str, List[str]], Dict[str, List[str]]]:
     """
     Build playlist relationship graph without loading track data (for memory efficiency).
-    Supports both direct and transitive flow relationships.
-    Uses caching to reduce API calls by 95% for daily runs.
-    
+    Supports both direct and transitive flow relationships using the library
+    manifest produced by ``sync_prod_library_cache``.
+
     Args:
         sp: Spotify client
-        use_cache: Whether to use cached data if available (default: True)
-        
+
     Returns:
         Tuple of (playlists_dict, parent_to_children, child_to_parents) where:
         - playlists_dict: {playlist_id: {name, parent_chars, child_chars}} (no tracks yet)
         - parent_to_children: {parent_id: [child_ids]}
         - child_to_parents: {child_id: [parent_ids]}
     """
-    # Initialize cache
-    cache = create_playlist_cache(PLAYLIST_FLOW_CACHE_TTL_HOURS) if use_cache and PLAYLIST_FLOW_USE_CACHE else None
-    
-    # Try to load from cache first
-    if cache and use_cache:
-        cache_stats = cache.get_cache_stats()
-        print(f"Cache status: {cache_stats['status']} ({cache_stats.get('age_hours', 'N/A')}h old)")
-        
-        cached_playlists = cache.get_cached_playlists()
-        cached_relationships = cache.get_cached_relationships()
-        
-        if cached_playlists is not None and cached_relationships is not None and len(cached_playlists) > 0:
-            print(f"Using cached data: {len(cached_playlists)} playlists, {len(cached_relationships[0])} relationships")
-            print(f"Cache saved ~{len(cached_playlists) * 2 + sum(len(children) for children in cached_relationships[0].values()) * 10} API calls")
-            
-            # Reconstruct playlists_dict from cache
-            playlists_dict = {}
-            for playlist_id, data in cached_playlists.items():
-                playlists_dict[playlist_id] = {
-                    "name": data["name"],
-                    "parent_chars": data["parent_chars"],
-                    "child_chars": data["child_chars"],
-                    "tracks_loaded": False
-                }
-            
-            return playlists_dict, cached_relationships[0], cached_relationships[1]
-    
-    playlists_dict = {}
-    char_to_parents = defaultdict(list)  # {char: [parent_playlist_ids]}
-    char_to_children = defaultdict(list)  # {char: [child_playlist_ids]}
-    
-    # Get all user playlists (metadata only)
-    offset = 0
-    limit = 50
-    total_playlists = 0
-    
-    print("Loading playlist metadata from Spotify API...")
-    
-    while True:
-        results = spotify_api_call_with_retry(
-            sp.current_user_playlists, limit=limit, offset=offset
+    manifest = load_library_manifest(strict=True)
+    playlists_meta = manifest.get("playlists", {})
+
+    if not playlists_meta:
+        raise RuntimeError(
+            "No playlists found in library cache. Run sync_prod_library_cache() first."
         )
-        
-        if not results["items"]:
-            break
-            
-        for playlist in results["items"]:
-            playlist_id = playlist["id"]
-            playlist_name = playlist["name"]
-            total_playlists += 1
-            
-            parent_chars, child_chars = extract_flow_characters(playlist_name)
-            
-            # Debug: Print playlist names and detected characters
-            if parent_chars or child_chars:
-                print(f"Playlist: '{playlist_name}' -> Parent chars: {parent_chars}, Child chars: {child_chars}")
-            
-            # Debug character mapping
-            for char in parent_chars:
-                print(f"  Mapping char '{char}' as parent for playlist '{playlist_name}'")
-            for char in child_chars:
-                print(f"  Looking for parent with char '{char}' for playlist '{playlist_name}'")
-            
-            # Store playlist metadata (no tracks yet for memory efficiency)
-            playlists_dict[playlist_id] = {
-                "name": playlist_name,
-                "parent_chars": parent_chars,
-                "child_chars": child_chars,
-                "tracks_loaded": False
-            }
-            
-            # Map characters to playlists
-            for char in parent_chars:
-                char_to_parents[char].append(playlist_id)
-            for char in child_chars:
-                char_to_children[char].append(playlist_id)
-        
-        if len(results["items"]) < limit:
-            break
-            
-        offset += limit
-    
+
+    print(f"Loaded playlist metadata for {len(playlists_meta)} playlists from library cache")
+
+    playlists_dict: Dict[str, Dict] = {}
+    char_to_parents = defaultdict(list)
+    char_to_children = defaultdict(list)
+
+    for playlist_id, meta in playlists_meta.items():
+        playlist_name = meta.get("name", "")
+
+        parent_chars, child_chars = extract_flow_characters(playlist_name)
+
+        if parent_chars or child_chars:
+            print(
+                f"Playlist: '{playlist_name}' -> Parent chars: {parent_chars}, Child chars: {child_chars}"
+            )
+
+        for char in parent_chars:
+            print(f"  Mapping char '{char}' as parent for playlist '{playlist_name}'")
+            char_to_parents[char].append(playlist_id)
+        for char in child_chars:
+            print(f"  Looking for parent with char '{char}' for playlist '{playlist_name}'")
+            char_to_children[char].append(playlist_id)
+
+        playlists_dict[playlist_id] = {
+            "name": playlist_name,
+            "parent_chars": parent_chars,
+            "child_chars": child_chars,
+            "tracks_loaded": False,
+            "tracks": [],
+        }
+
     # Build direct relationship mappings
     parent_to_children = defaultdict(list)
     child_to_parents = defaultdict(list)
-    
+
     for char, parent_ids in char_to_parents.items():
         child_ids = char_to_children.get(char, [])
         for parent_id in parent_ids:
@@ -377,13 +333,13 @@ def build_playlist_relationships(sp, use_cache: bool = True) -> Tuple[Dict[str, 
                 if parent_id != child_id:  # Avoid self-loops
                     parent_to_children[parent_id].append(child_id)
                     child_to_parents[child_id].append(parent_id)
-    
+
     direct_relationships = len(parent_to_children)
-    
+
     # Build transitive relationships (multi-hop chains)
     # Find playlists that are both parents and children (intermediate nodes)
     transitive_added = 0
-    
+
     for intermediate_id in playlists_dict:
         intermediate_data = playlists_dict[intermediate_id]
         
@@ -419,22 +375,14 @@ def build_playlist_relationships(sp, use_cache: bool = True) -> Tuple[Dict[str, 
         child_to_parents[child_id] = list(set(child_to_parents[child_id]))
     
     total_relationships = len(parent_to_children)
+    total_playlists = len(playlists_dict)
     
     print(f"Loaded {total_playlists} playlists")
     print(f"Found {direct_relationships} direct flow relationships")
     if transitive_added > 0:
         print(f"Added {transitive_added} transitive flow relationships")
     print(f"Total: {total_relationships} flow relationships")
-    
-    # Cache the results for future runs
-    if cache and use_cache:
-        cache.cache_playlists_and_relationships(
-            playlists_dict, 
-            dict(parent_to_children), 
-            dict(child_to_parents)
-        )
-        print(f"Cached metadata for {total_playlists} playlists (reduces future API calls by ~95%)")
-    
+
     return playlists_dict, dict(parent_to_children), dict(child_to_parents)
 
 
@@ -694,7 +642,7 @@ def run_action():
         # Build the playlist relationship graph (metadata only for memory efficiency)
         print("Building playlist relationship graph...")
         print("Looking for special characters (non-keyboard chars) at start/end of playlist names")
-        playlists_dict, parent_to_children, child_to_parents = build_playlist_relationships(sp, use_cache=PLAYLIST_FLOW_USE_CACHE)
+        playlists_dict, parent_to_children, child_to_parents = build_playlist_relationships(sp)
         
         print(f"Found {len(playlists_dict)} total playlists")
         if len(playlists_dict) <= 20:  # Only show all names for small lists
