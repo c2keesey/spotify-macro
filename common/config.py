@@ -53,12 +53,6 @@ if not get_env("VENV_PATH"):
 DAILY_LIKED_PLAYLIST_ID = get_env("DAILY_LIKED_PLAYLIST_ID")
 DAILY_LIKED_PLAYLIST_NAME = get_env("DAILY_LIKED_PLAYLIST_NAME", "Daily Liked Songs")
 
-# Spotify Playlist Flow Configuration
-PLAYLIST_FLOW_ENABLED = get_env("PLAYLIST_FLOW_ENABLED", "true").lower() == "true"
-PLAYLIST_FLOW_SPECIAL_CHARS = get_env("PLAYLIST_FLOW_SPECIAL_CHARS", "♪♫♬♩♭♯♮🎵🎶⚡◆◇★☆♦♥♠♣❇️✅♻️🔱💠")
-PLAYLIST_FLOW_SKIP_CYCLES = get_env("PLAYLIST_FLOW_SKIP_CYCLES", "true").lower() == "true"
 
-# Genre Classification Configuration
-GENRE_CLASSIFICATION_ENABLED = get_env("GENRE_CLASSIFICATION_ENABLED", "true").lower() == "true"
-GENRE_CLASSIFICATION_FALLBACK_PLAYLIST = get_env("GENRE_CLASSIFICATION_FALLBACK_PLAYLIST", "Unclassified")
-GENRE_CLASSIFICATION_USE_AUDIO_FEATURES = get_env("GENRE_CLASSIFICATION_USE_AUDIO_FEATURES", "true").lower() == "true"
+# Folder Sort Configuration
+SPOTIFY_NEW_PLAYLIST_NAME = get_env("SPOTIFY_NEW_PLAYLIST_NAME", "New")
