@@ -1,3 +1,6 @@
 [submodule "telegram-cron"]
 	path = telegram-cron
 	url = git@github.com:c2keesey/telegram-cron.git
+[submodule "data/library-vcs"]
+	path = data/library-vcs
+	url = /Users/c2k/Projects/spotify-library-cache
