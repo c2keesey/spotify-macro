@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,8 @@ LIBRARY_DIR = PROJECT_ROOT / "data" / "library"
 PLAYLISTS_DIR = LIBRARY_DIR / "playlists"
 MANIFEST_PATH = LIBRARY_DIR / "manifest.json"
 MANIFEST_VERSION = "1.0"
+STAGING_STATE_PATH = LIBRARY_DIR / "staging_state.json"
+STAGING_STATE_VERSION = "1.0"
 
 
 @dataclass
@@ -193,6 +196,14 @@ def _initialize_spotify_client():
     return initialize_spotify_client(scope)
 
 
+def _initialize_write_spotify_client():
+    scope = (
+        "playlist-read-private playlist-read-collaborative "
+        "playlist-modify-private playlist-modify-public"
+    )
+    return initialize_spotify_client(scope)
+
+
 def _load_manifest() -> Dict[str, Any]:
     if not MANIFEST_PATH.exists():
         return {"version": MANIFEST_VERSION, "generated_at": None, "owner": None, "playlists": {}}
@@ -210,6 +221,25 @@ def _save_manifest(manifest_template: Dict[str, Any]) -> None:
     with open(temp_path, "w", encoding="utf-8") as handle:
         json.dump(manifest_template, handle, indent=2, ensure_ascii=False)
     temp_path.replace(MANIFEST_PATH)
+
+
+def _load_staging_state() -> Dict[str, Any]:
+    if not STAGING_STATE_PATH.exists():
+        return {"version": STAGING_STATE_VERSION, "generated_at": None, "playlists": {}}
+
+    try:
+        with open(STAGING_STATE_PATH, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except json.JSONDecodeError as exc:
+        LOGGER.warning("Failed to parse staging state %s: %s", STAGING_STATE_PATH, exc)
+        return {"version": STAGING_STATE_VERSION, "generated_at": None, "playlists": {}}
+
+
+def _save_staging_state(state_template: Dict[str, Any]) -> None:
+    temp_path = STAGING_STATE_PATH.with_suffix(".tmp")
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(state_template, handle, indent=2, ensure_ascii=False)
+    temp_path.replace(STAGING_STATE_PATH)
 
 
 def _iter_authored_playlists(sp, owner_id: str) -> Iterable[Dict[str, Any]]:
@@ -389,3 +419,307 @@ def load_library_manifest(*, strict: bool = True) -> Dict[str, Any]:
             "Library manifest missing or empty. Run sync_prod_library_cache() first."
         )
     return manifest
+
+
+def sync_library_cache_to_current_account(
+    *,
+    spotify_client=None,
+    playlist_ids: Optional[Iterable[str]] = None,
+    limit: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Apply the cached prod library to the currently authenticated account.
+
+    This helper is intended for staging/test environments to mirror prod
+    playlists without falling back to legacy caches. It creates any missing
+    playlists, updates metadata when required, and only rewrites tracklists
+    when a diff is detected to keep API usage low.
+
+    Args:
+        spotify_client: Optional Spotipy client to reuse a preconfigured session.
+        playlist_ids: Optional iterable of prod playlist IDs from the cache to
+            restrict the sync scope.
+        limit: Optional cap on the number of playlists processed after the
+            ``playlist_ids`` filter is applied. Useful for smoke tests.
+
+    Returns:
+        Summary information about playlist creations, metadata updates, track
+        rewrites, and removals applied to the target account.
+
+    Raises:
+        RuntimeError: When invoked from the prod environment.
+        FileNotFoundError: When any referenced playlist payload is missing.
+        ValueError: When cached playlists lack track data.
+    """
+
+    if CURRENT_ENV == "prod":
+        raise RuntimeError("Refusing to push cache while CURRENT_ENV='prod'.")
+
+    manifest = load_library_manifest(strict=True)
+    playlist_items = list(manifest.get("playlists", {}).items())
+
+    if playlist_ids is not None:
+        ids = set(playlist_ids)
+        playlist_items = [item for item in playlist_items if item[0] in ids]
+
+    playlist_items.sort(key=lambda item: _name_key(item[1].get("name")))
+
+    if limit is not None:
+        playlist_items = playlist_items[:limit]
+
+    if not playlist_items:
+        return {
+            "created": 0,
+            "metadata_updates": 0,
+            "track_updates": 0,
+            "removed": 0,
+            "processed": 0,
+        }
+
+    sp = spotify_client or _initialize_write_spotify_client()
+    current_user = spotify_api_call_with_retry(sp.current_user)
+    target_user_id = current_user["id"]
+
+    authored_by_id, authored_by_name = _build_authored_playlist_indexes(sp, target_user_id)
+    staging_state = _load_staging_state()
+    state_playlists: Dict[str, Any] = staging_state.setdefault("playlists", {})
+
+    summary = {
+        "created": 0,
+        "metadata_updates": 0,
+        "track_updates": 0,
+        "removed": 0,
+        "processed": len(playlist_items),
+    }
+
+    for prod_playlist_id, entry in playlist_items:
+        cached_payload = _read_cached_playlist_payload(entry)
+        playlist_display_name = (
+            cached_payload.get("playlist_name")
+            or entry.get("name")
+            or prod_playlist_id
+        )
+        cached_payload.setdefault("playlist_name", playlist_display_name)
+        target_uris = _extract_track_uris_from_payload(cached_payload)
+        if cached_payload.get("tracks") is None:
+            raise ValueError(
+                f"Cached playlist {prod_playlist_id} has no track data; run sync_prod_library_cache(include_tracks=True)."
+            )
+
+        state_entry = state_playlists.get(prod_playlist_id, {})
+        staging_playlist_id = state_entry.get("staging_playlist_id")
+        staging_playlist = None
+
+        if staging_playlist_id and staging_playlist_id in authored_by_id:
+            staging_playlist = authored_by_id[staging_playlist_id]
+        else:
+            if staging_playlist_id and staging_playlist_id not in authored_by_id:
+                LOGGER.info(
+                    "Recorded staging playlist %s missing; will rehydrate",
+                    staging_playlist_id,
+                )
+
+            staging_playlist = _locate_playlist_by_name(
+                authored_by_name,
+                playlist_display_name,
+            )
+
+            if staging_playlist is None:
+                metadata = cached_payload.get("metadata", {})
+                staging_playlist = spotify_api_call_with_retry(
+                    sp.user_playlist_create,
+                    target_user_id,
+                    playlist_display_name,
+                    public=bool(metadata.get("public", False)),
+                    collaborative=bool(metadata.get("collaborative", False)),
+                    description=_safe_description(metadata.get("description")),
+                )
+                summary["created"] += 1
+                authored_by_id[staging_playlist["id"]] = staging_playlist
+                name_key = _name_key(staging_playlist.get("name"))
+                authored_by_name[name_key].append(staging_playlist)
+
+        staging_playlist_id = staging_playlist["id"]
+
+        metadata_changed = _sync_playlist_metadata_if_needed(
+            sp,
+            staging_playlist,
+            cached_payload,
+        )
+        if metadata_changed:
+            summary["metadata_updates"] += 1
+
+        remote_track_uris = _fetch_playlist_track_uris(sp, staging_playlist_id)
+        if remote_track_uris != target_uris:
+            snapshot_id = _overwrite_playlist_tracks(sp, staging_playlist_id, target_uris)
+            if snapshot_id:
+                staging_playlist["snapshot_id"] = snapshot_id
+            summary["track_updates"] += 1
+
+        state_playlists[prod_playlist_id] = {
+            "staging_playlist_id": staging_playlist_id,
+            "snapshot_id": staging_playlist.get("snapshot_id"),
+            "playlist_name": staging_playlist.get("name"),
+            "last_synced_at": datetime.utcnow().isoformat(),
+        }
+
+    if playlist_ids is None and limit is None:
+        manifest_playlist_ids = set(manifest.get("playlists", {}))
+        stale_entries = [pid for pid in list(state_playlists) if pid not in manifest_playlist_ids]
+
+        for prod_playlist_id in stale_entries:
+            staging_playlist_id = state_playlists[prod_playlist_id].get("staging_playlist_id")
+            if staging_playlist_id and staging_playlist_id in authored_by_id:
+                spotify_api_call_with_retry(sp.current_user_unfollow_playlist, staging_playlist_id)
+                summary["removed"] += 1
+            state_playlists.pop(prod_playlist_id, None)
+
+    staging_state["version"] = STAGING_STATE_VERSION
+    staging_state["generated_at"] = datetime.utcnow().isoformat()
+    staging_state["owner"] = {
+        "id": current_user.get("id"),
+        "display_name": current_user.get("display_name"),
+        "uri": current_user.get("uri"),
+    }
+    _save_staging_state(staging_state)
+
+    return summary
+
+
+def _build_authored_playlist_indexes(sp, owner_id: str):
+    by_id: Dict[str, Dict[str, Any]] = {}
+    by_name: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for playlist in _iter_authored_playlists(sp, owner_id):
+        by_id[playlist["id"]] = playlist
+        by_name[_name_key(playlist.get("name"))].append(playlist)
+    return by_id, by_name
+
+
+def _read_cached_playlist_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
+    relative_file = entry.get("file")
+    if not relative_file:
+        raise FileNotFoundError("Manifest entry missing playlist file reference")
+
+    playlist_path = LIBRARY_DIR / relative_file
+    if not playlist_path.exists():
+        raise FileNotFoundError(f"Cached playlist payload missing: {playlist_path}")
+
+    with open(playlist_path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _extract_track_uris_from_payload(payload: Dict[str, Any]) -> List[str]:
+    uris: List[str] = []
+    for item in payload.get("tracks", []) or []:
+        track = item.get("track") if isinstance(item, dict) else None
+        uri = track.get("uri") if isinstance(track, dict) else None
+        if uri:
+            uris.append(uri)
+    return uris
+
+
+def _fetch_playlist_track_uris(sp, playlist_id: str) -> List[str]:
+    uris: List[str] = []
+    offset = 0
+    limit = 100
+
+    while True:
+        response = spotify_api_call_with_retry(
+            sp.playlist_items,
+            playlist_id,
+            limit=limit,
+            offset=offset,
+            fields="items(track(uri,is_local)),next",
+            additional_types=("track",),
+        )
+
+        items = response.get("items", [])
+        for item in items:
+            track = item.get("track") or {}
+            if track.get("is_local"):
+                continue
+            uri = track.get("uri")
+            if uri:
+                uris.append(uri)
+
+        if len(items) < limit or not response.get("next"):
+            break
+        offset += limit
+
+    return uris
+
+
+def _overwrite_playlist_tracks(sp, playlist_id: str, target_uris: List[str]) -> Optional[str]:
+    if not target_uris:
+        response = spotify_api_call_with_retry(sp.playlist_replace_items, playlist_id, [])
+        return _extract_snapshot_id(response)
+
+    head = target_uris[:100]
+    response = spotify_api_call_with_retry(sp.playlist_replace_items, playlist_id, head)
+    snapshot_id = _extract_snapshot_id(response)
+
+    for index in range(100, len(target_uris), 100):
+        chunk = target_uris[index : index + 100]
+        response = spotify_api_call_with_retry(sp.playlist_add_items, playlist_id, chunk)
+        latest_snapshot = _extract_snapshot_id(response)
+        if latest_snapshot:
+            snapshot_id = latest_snapshot
+
+    return snapshot_id
+
+
+def _sync_playlist_metadata_if_needed(sp, staging_playlist: Dict[str, Any], payload: Dict[str, Any]) -> bool:
+    desired_name = payload.get("playlist_name")
+    metadata = payload.get("metadata", {})
+    desired_description = _safe_description(metadata.get("description"))
+    desired_public = bool(metadata.get("public", False))
+    desired_collaborative = bool(metadata.get("collaborative", False))
+
+    current_name = staging_playlist.get("name")
+    current_description = _safe_description(staging_playlist.get("description"))
+    current_public = bool(staging_playlist.get("public", False))
+    current_collaborative = bool(staging_playlist.get("collaborative", False))
+
+    changes: Dict[str, Any] = {}
+    if desired_name and desired_name != current_name:
+        changes["name"] = desired_name
+    if desired_description != current_description:
+        changes["description"] = desired_description
+    if desired_public != current_public:
+        changes["public"] = desired_public
+    if desired_collaborative != current_collaborative:
+        changes["collaborative"] = desired_collaborative
+
+    if not changes:
+        return False
+
+    spotify_api_call_with_retry(sp.playlist_change_details, staging_playlist["id"], **changes)
+    staging_playlist.update(changes)
+    return True
+
+
+def _locate_playlist_by_name(index: Dict[str, List[Dict[str, Any]]], name: Optional[str]):
+    if not name:
+        return None
+    candidates = index.get(_name_key(name))
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    # Prefer the most recently modified playlist when duplicates exist.
+    return max(candidates, key=lambda playlist: playlist.get("snapshot_id", ""))
+
+
+def _safe_description(description: Optional[str]) -> str:
+    return (description or "").strip()
+
+
+def _name_key(name: Optional[str]) -> str:
+    return (name or "").strip().lower()
+
+
+def _extract_snapshot_id(response: Any) -> Optional[str]:
+    if isinstance(response, dict):
+        snapshot_id = response.get("snapshot_id")
+        if isinstance(snapshot_id, str):
+            return snapshot_id
+    return None
