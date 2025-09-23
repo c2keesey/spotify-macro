@@ -63,3 +63,8 @@ SPOTIFY_ENV=prod ./scripts/run_spotify_folder_sort.sh --keep
 - [ ] create a latest playlist with similar logic but for latest n months of tracks
 - [ ] single playlist artists automatic flow
 - [ ] create new artist playlist or keep them in new?
+- [ ] make sure reruns update properly (no dups, playlist_folders.json changing/reorged)
+
+### Future
+
+- [ ] auto create folders based on highest accuracy of classification
