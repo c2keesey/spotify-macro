@@ -31,6 +31,11 @@ from common.folder_sort_utils import (
     normalize_name_key,
     strip_json_suffix,
 )
+from common.folder_sort_progress import (
+    FolderSortProgress,
+    load_progress_state,
+    save_progress_state,
+)
 from common.library_sync import (  # reuse helper
     _fetch_playlist_track_uris,
     load_library_manifest,
@@ -254,6 +259,104 @@ def _plan_additions(
     return plan, track_to_folders
 
 
+def _plan_additions_with_progress(
+    new_tracks: List[TrackRef],
+    folder_to_artist_ids: Dict[str, Set[str]],
+    folder_to_aggregator: Dict[str, Dict],
+    progress: FolderSortProgress,
+) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Plan additions while respecting progress state.
+
+    Skips tracks that have been marked as processed for specific folders.
+    """
+    plan: Dict[str, List[str]] = defaultdict(list)
+    track_to_folders: Dict[str, List[str]] = defaultdict(list)
+
+    for t in new_tracks:
+        for folder, artist_set in folder_to_artist_ids.items():
+            if not artist_set:
+                continue
+
+            # Skip if track is already processed for this folder
+            if progress.is_processed(t.uri, folder):
+                continue
+
+            if any(aid in artist_set for aid in t.artist_ids):
+                agg = folder_to_aggregator.get(folder)
+                if not agg:
+                    continue
+                plan[agg["id"]].append(t.uri)
+                track_to_folders[t.uri].append(folder)
+
+    return plan, track_to_folders
+
+
+def _mark_aggregator_as_processed(
+    sp,
+    folder_to_aggregator: Dict[str, Dict],
+    progress: FolderSortProgress,
+) -> int:
+    """Mark all tracks currently in aggregators as processed.
+
+    Args:
+        sp: Spotify client
+        folder_to_aggregator: Mapping of folder name to aggregator playlist object
+        progress: Progress state to update
+
+    Returns:
+        Total number of (track, folder) pairs marked as processed
+    """
+    total_marked = 0
+
+    for folder, aggregator in folder_to_aggregator.items():
+        if not aggregator:
+            continue
+
+        aggregator_id = aggregator["id"]
+        track_uris = _fetch_playlist_track_uris(sp, aggregator_id)
+
+        for uri in track_uris:
+            if not progress.is_processed(uri, folder):
+                progress.mark_processed(uri, folder)
+                total_marked += 1
+
+    return total_marked
+
+
+def show_progress(progress: FolderSortProgress) -> None:
+    """Display progress state to console.
+
+    Args:
+        progress: Progress state to display
+    """
+    stats = progress.get_stats()
+
+    if stats["total_tracks"] == 0:
+        print("No tracks have been marked as processed yet.")
+        return
+
+    print(f"\n📊 Folder Sort Progress")
+    print(f"{'=' * 60}")
+    print(f"Total tracks processed: {stats['total_tracks']}")
+    print(f"Total folder assignments: {stats['total_folder_assignments']}")
+    print(f"Folders with processed tracks: {stats['unique_folders']}")
+    print(f"Last updated: {progress.last_updated}")
+
+    # Group by folder
+    folder_counts: Dict[str, int] = defaultdict(int)
+    for track_uri, folders in progress.processed_tracks.items():
+        for folder in folders:
+            folder_counts[folder] += 1
+
+    if folder_counts:
+        print(f"\n📁 Tracks per folder:")
+        for folder in sorted(folder_counts.keys()):
+            count = folder_counts[folder]
+            print(f"  {folder}: {count} tracks")
+
+    print(f"{'=' * 60}\n")
+
+
 def _apply_additions_and_optionally_remove(
     sp,
     plan: Dict[str, List[str]],
@@ -301,12 +404,47 @@ def _apply_additions_and_optionally_remove(
 
 def run_action(argv: Optional[List[str]] = None):
     """CLI entrypoint for folder sorter."""
-    # TODO: Consider adding --folders filter later if needed
-    parser = argparse.ArgumentParser(description="Sort 'New' into folder aggregators")
+    parser = argparse.ArgumentParser(
+        description="Sort 'New' into folder aggregators with progress tracking"
+    )
     parser.add_argument(
         "--keep", action="store_true", help="Do not remove matched tracks from 'New'"
     )
+    parser.add_argument(
+        "--mark-current-as-processed",
+        action="store_true",
+        help="Mark all current aggregator contents as processed (for preserving manual curation)",
+    )
+    parser.add_argument(
+        "--show-progress",
+        action="store_true",
+        help="Display current progress state and exit",
+    )
+    parser.add_argument(
+        "--clear-progress",
+        action="store_true",
+        help="Clear all progress state and exit",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress tracking for this run (ignore processed tracks)",
+    )
     args = parser.parse_args(argv)
+
+    # Load progress state
+    progress = load_progress_state()
+
+    # Handle progress management commands
+    if args.show_progress:
+        show_progress(progress)
+        return "Progress displayed", ""
+
+    if args.clear_progress:
+        progress.clear()
+        save_progress_state(progress)
+        print("✅ Progress state cleared")
+        return "Progress cleared", ""
 
     # Build classification data from cache
     manifest = load_library_manifest(strict=True)
@@ -330,6 +468,15 @@ def run_action(argv: Optional[List[str]] = None):
     folder_names = list(folders_map.keys())
     aggregators, created_names = _discover_or_create_aggregators(sp, folder_names)
 
+    # Handle mark-current-as-processed
+    if args.mark_current_as_processed:
+        folder_to_agg = {folder: aggregators.get(folder) for folder in folder_names}
+        marked = _mark_aggregator_as_processed(sp, folder_to_agg, progress)
+        save_progress_state(progress)
+        print(f"✅ Marked {marked} track-folder pairs as processed")
+        show_progress(progress)
+        return "Marked as processed", f"{marked} pairs"
+
     # Find New playlist
     new_name = SPOTIFY_NEW_PLAYLIST_NAME
     new_pl = _find_new_playlist(sp, new_name)
@@ -344,11 +491,28 @@ def run_action(argv: Optional[List[str]] = None):
 
     new_tracks = _fetch_new_tracks_with_artists(sp, new_pl["id"])
 
-    # Plan additions
+    # Plan additions (with or without progress tracking)
     folder_to_agg = {folder: aggregators.get(folder) for folder in folder_names}
-    plan, track_to_folders = _plan_additions(
-        new_tracks, folder_artist_index, folder_to_agg
-    )
+
+    if args.no_progress:
+        # Use original planning function (ignore progress)
+        plan, track_to_folders = _plan_additions(
+            new_tracks, folder_artist_index, folder_to_agg
+        )
+        skipped_count = 0
+    else:
+        # Use progress-aware planning function
+        plan, track_to_folders = _plan_additions_with_progress(
+            new_tracks, folder_artist_index, folder_to_agg, progress
+        )
+
+        # Calculate how many were skipped due to progress
+        plan_without_progress, _ = _plan_additions(
+            new_tracks, folder_artist_index, folder_to_agg
+        )
+        all_planned_without_progress = sum(len(uris) for uris in plan_without_progress.values())
+        all_planned_with_progress = sum(len(uris) for uris in plan.values())
+        skipped_count = all_planned_without_progress - all_planned_with_progress
 
     # Apply
     added, removed = _apply_additions_and_optionally_remove(
@@ -359,6 +523,10 @@ def run_action(argv: Optional[List[str]] = None):
         new_playlist_id=new_pl["id"],
     )
 
+    # Save progress state after successful run
+    if not args.no_progress:
+        save_progress_state(progress)
+
     # Summary
     matched_tracks = len({u for u, folders in track_to_folders.items() if folders})
     folders_hit = sum(1 for uris in plan.values() if uris)
@@ -368,6 +536,8 @@ def run_action(argv: Optional[List[str]] = None):
         f"Tracks scanned: {len(new_tracks)} | matched: {matched_tracks} | "
         f"folders affected: {folders_hit} | removed from New: {removed}"
     )
+    if skipped_count > 0:
+        message += f" | skipped (processed): {skipped_count}"
     if created_names:
         message += f" | created: {len(created_names)} aggregators"
     if unresolved:
