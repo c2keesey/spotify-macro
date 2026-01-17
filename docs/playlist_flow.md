@@ -1,6 +1,6 @@
 # Playlist Flow
 
-**Status:** Not implemented yet
+**Status:** Implemented
 
 ## Overview
 
