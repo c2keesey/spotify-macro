@@ -1,125 +1,72 @@
-# Cron Job Setup for Playlist Flow
+# Cron Job Setup for Automations
 
-This guide explains how to set up the daily cron job for the Spotify playlist flow automation.
+This guide explains how to set up cron jobs for the Spotify automations.
 
-## Current Setup
+## Prerequisites
 
-The cron job has been configured to run daily at 9:00 AM:
-
-```bash
-0 9 * * * /Users/c2k/Projects/spotify-macro/scripts/run_playlist_flow_cron.sh
-```
-
-## First-Time Setup Required
-
-**IMPORTANT**: Before the cron job can run successfully, you need to authenticate with Spotify manually once to create the auth cache file.
-
-### Steps:
-
-1. **Run the automation manually first** (to create auth cache):
+1. **Authenticate with Spotify** (required before any automation can run):
    ```bash
-   cd /Users/c2k/Projects/spotify-macro
-   ./scripts/run_spotify_playlist_flow.sh
-   ```
-   
-2. **Complete the OAuth flow** in your browser when prompted
-
-3. **Verify the cache file was created**:
-   ```bash
-   ls -la common/.playlist_flow_cache*
-   ```
-   You should see a file like `common/.playlist_flow_cache_prod`
-
-4. **Test the cron script** (optional):
-   ```bash
-   ./scripts/run_playlist_flow_cron.sh
+   SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py auth
    ```
 
-## Script Features
+2. **Sync the library cache** (required for playlist_flow, folder_sorter, etc.):
+   ```bash
+   SPOTIFY_ENV=prod uv run python -c "from common.library_sync import sync_prod_library_cache; sync_prod_library_cache()"
+   ```
 
-The cron-compatible script (`run_playlist_flow_cron.sh`) includes:
+## Running Automations
 
-- ✅ **Full path resolution** - Finds `uv` in common Homebrew locations
-- ✅ **Working directory handling** - Changes to project directory first
-- ✅ **Environment variable loading** - Safely loads from `.env` file
-- ✅ **Comprehensive logging** - Logs to `logs/playlist_flow_cron.log`
-- ✅ **Error handling** - Graceful failure with detailed error messages
-- ✅ **Smart notifications** - Only shows notifications for significant events
-- ✅ **Production environment** - Uses `SPOTIFY_ENV=prod` by default
-
-## Monitoring
-
-### Check if cron job is scheduled:
+### Playlist Flow
 ```bash
-crontab -l
+SPOTIFY_ENV=prod uv run python -m automations.spotify.playlist_flow.action
 ```
 
-### View recent logs:
+### Folder Sorter
 ```bash
-tail -f /Users/c2k/Projects/spotify-macro/logs/playlist_flow_cron.log
+SPOTIFY_ENV=prod uv run python -m automations.spotify.folder_sorter.action
 ```
 
-### Check system cron logs:
+### Daily Liked Songs
 ```bash
-tail -f /var/log/system.log | grep cron
+SPOTIFY_ENV=prod uv run python -m automations.spotify.daily_liked_songs.action
 ```
 
-## Log Location
-
-All cron job output is logged to:
-```
-/Users/c2k/Projects/spotify-macro/logs/playlist_flow_cron.log
+### Save Current Track
+```bash
+SPOTIFY_ENV=prod uv run python -m automations.spotify.save_current
 ```
 
-The log includes:
-- Timestamp for each operation
-- Environment loading status
-- Authentication cache usage
-- Playlist flow results
-- Error messages and troubleshooting info
+## Example Cron Setup
+
+Edit your crontab:
+```bash
+crontab -e
+```
+
+Add entries like:
+```bash
+# Run playlist flow daily at 9 AM
+0 9 * * * cd /path/to/spotify-macro && SPOTIFY_ENV=prod uv run python -m automations.spotify.playlist_flow.action >> logs/playlist_flow.log 2>&1
+
+# Run folder sorter daily at 10 AM
+0 10 * * * cd /path/to/spotify-macro && SPOTIFY_ENV=prod uv run python -m automations.spotify.folder_sorter.action >> logs/folder_sorter.log 2>&1
+```
 
 ## Troubleshooting
 
-### Common Issues:
-
-1. **Authentication expired**: 
-   - Run the manual script again to refresh auth cache
-   - Check for "User authentication requires interaction" in logs
-
-2. **Environment issues**:
-   - Verify `.env` file exists in project root
-   - Check log for "Loading environment variables from .env"
-
-3. **Path issues**:
-   - Script automatically finds `uv` in common locations
-   - Check log for "Found uv at: /path/to/uv"
-
-4. **Permission issues**:
-   - Ensure script is executable: `chmod +x scripts/run_playlist_flow_cron.sh`
-   - Check file permissions on `.env` and cache files
-
-## Modifying the Schedule
-
-To change when the cron job runs:
-
+### Authentication expired
+Run the auth script again:
 ```bash
-# Edit cron jobs
-crontab -e
-
-# Or replace the schedule (preserving other jobs)
-(crontab -l | grep -v playlist_flow; echo "0 21 * * * /Users/c2k/Projects/spotify-macro/scripts/run_playlist_flow_cron.sh") | crontab -
+SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py auth
 ```
 
-Common cron schedule examples:
-- `0 9 * * *` - Daily at 9 AM
-- `0 21 * * *` - Daily at 9 PM  
-- `0 9 * * 1` - Every Monday at 9 AM
-- `0 9 1 * *` - First day of every month at 9 AM
-
-## Removing the Cron Job
-
-To remove the playlist flow cron job:
-
+### Library cache out of date
+Re-sync the cache:
 ```bash
-(crontab -l | grep -v playlist_flow) | crontab -
+SPOTIFY_ENV=prod uv run python -c "from common.library_sync import sync_prod_library_cache; sync_prod_library_cache(force_full_refresh=True)"
+```
+
+### Check auth status
+```bash
+SPOTIFY_ENV=prod uv run python scripts/spotify_auth.py status
 ```
