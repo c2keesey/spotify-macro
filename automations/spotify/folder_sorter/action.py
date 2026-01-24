@@ -2,7 +2,7 @@
 Automated sorting from the "New" playlist into folder aggregators.
 
 Behavior:
-- Build folder -> artist_id index from cached library using data/playlist_folders.yaml
+- Build folder -> artist_id index from cached library using data/playlist_folders.json
 - Discover or create aggregator playlists per folder (configurable prefixes)
 - For each track in "New": if any artist is in any folder index, add to that folder's aggregator
 - If at least one add succeeded and --keep is not set, remove that track from "New"
@@ -16,11 +16,10 @@ This job uses cached library data for all classification logic. Spotify API is u
 from __future__ import annotations
 
 import argparse
+import json
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
-
-import yaml
+from typing import Dict, List, Set, Tuple
 
 from common.config import (
     PROJECT_ROOT,
@@ -29,8 +28,13 @@ from common.config import (
 from common.folder_sort_utils import (
     is_aggregator_for_folder,
     make_aggregator_name,
+    normalize_name_key,
+    strip_json_suffix,
 )
-from common.library_sync import _fetch_playlist_track_uris
+from common.library_sync import (  # reuse helper
+    _fetch_playlist_track_uris,
+    load_library_manifest,
+)
 from common.playlist_data_utils import PlaylistDataLoader
 from common.spotify_utils import initialize_spotify_client, spotify_api_call_with_retry
 from common.utils.notifications import send_notification_via_file
@@ -43,27 +47,55 @@ class TrackRef:
 
 
 def _load_playlist_folders_map() -> Dict[str, List[str]]:
-    """Load folders -> playlist IDs from data/playlist_folders.yaml.
+    """Load folders -> playlist display filenames from data/playlist_folders.json.
 
-    Returns a mapping of folder display name -> list of playlist IDs.
-    The YAML format uses playlist IDs directly with name comments:
-
-        House:
-          - 3cEYpjA9oz9GiPac4AsH4n  # 🜍 H
-          - 0vvXsWCC9xrXsKd4FyS8kM  # CRANK 🜍🜂
+    Returns a mapping of folder display name -> list of playlist display names (without .json).
     """
-    folders_path = PROJECT_ROOT / "data" / "playlist_folders.yaml"
+    folders_path = PROJECT_ROOT / "data" / "playlist_folders.json"
     if not folders_path.exists():
         raise FileNotFoundError(f"Missing folder definition file: {folders_path}")
 
     with open(folders_path, "r", encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle)
+        raw = json.load(handle)
 
-    # YAML loader returns folder -> list of IDs (comments are stripped)
-    result: Dict[str, List[str]] = {}
-    for folder_name, items in (raw or {}).items():
-        result[folder_name] = list(items) if items else []
-    return result
+    normalized: Dict[str, List[str]] = {}
+    for folder_name, items in raw.items():
+        clean_items = [strip_json_suffix(x) for x in items]
+        normalized[folder_name] = clean_items
+    return normalized
+
+
+def _build_manifest_name_index(manifest: Dict) -> Dict[str, Tuple[str, Dict]]:
+    """Build name-key -> (playlist_id, manifest_entry)."""
+    index: Dict[str, Tuple[str, Dict]] = {}
+    for pid, entry in manifest.get("playlists", {}).items():
+        name = entry.get("name") or pid
+        index[normalize_name_key(name)] = (pid, entry)
+    return index
+
+
+def _resolve_folder_playlist_ids(
+    folders_map: Dict[str, List[str]],
+    manifest_name_index: Dict[str, Tuple[str, Dict]],
+) -> Tuple[Dict[str, List[str]], List[str]]:
+    """Resolve listed folder playlist names to playlist IDs using the manifest index.
+
+    Returns tuple of (folder_name -> list[playlist_id], missing_names_log)
+    """
+    folder_ids: Dict[str, List[str]] = {}
+    missing: List[str] = []
+
+    for folder, names in folders_map.items():
+        ids: List[str] = []
+        for display_name in names:
+            key = normalize_name_key(display_name)
+            if key in manifest_name_index:
+                pid, _ = manifest_name_index[key]
+                ids.append(pid)
+            else:
+                missing.append(f"{folder}:{display_name}")
+        folder_ids[folder] = ids
+    return folder_ids, missing
 
 
 def _build_folder_artist_index(
@@ -276,15 +308,18 @@ def run_action(argv: Optional[List[str]] = None):
     )
     args = parser.parse_args(argv)
 
-    # Load playlist data from cache
+    # Build classification data from cache
+    manifest = load_library_manifest(strict=True)
+    name_index = _build_manifest_name_index(manifest)
+
     playlists_loader = PlaylistDataLoader.load_playlists_from_directory(
         normalize_tracks=True,
         include_empty=False,
         verbose=False,
     )
 
-    # Load folder -> playlist IDs mapping (YAML contains IDs directly)
-    folders_to_ids = _load_playlist_folders_map()
+    folders_map = _load_playlist_folders_map()
+    folders_to_ids, unresolved = _resolve_folder_playlist_ids(folders_map, name_index)
     folder_artist_index = _build_folder_artist_index(folders_to_ids, playlists_loader)
 
     # Initialize Spotify client
@@ -292,7 +327,7 @@ def run_action(argv: Optional[List[str]] = None):
     sp = initialize_spotify_client(scope)
 
     # Find or create aggregators
-    folder_names = list(folders_to_ids.keys())
+    folder_names = list(folders_map.keys())
     aggregators, created_names = _discover_or_create_aggregators(sp, folder_names)
 
     # Find New playlist
@@ -335,6 +370,8 @@ def run_action(argv: Optional[List[str]] = None):
     )
     if created_names:
         message += f" | created: {len(created_names)} aggregators"
+    if unresolved:
+        message += f" | unresolved refs: {len(unresolved)}"
 
     send_notification_via_file(title, message, "/tmp/spotify_folder_sort_result.txt")
     print(f"{title}\n{message}")

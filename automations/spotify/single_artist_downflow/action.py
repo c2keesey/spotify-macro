@@ -6,20 +6,19 @@ Processes tracks by single-playlist artists in the 'new' playlist by:
 2. Adding those tracks to both the artist's specific playlist and the folder playlist
 3. Removing the processed tracks from the 'new' playlist
 
-This automation uses the playlist folder structure defined in data/playlist_folders.yaml
+This automation uses the playlist folder structure defined in data/playlist_folders.json
 to determine which folder playlist to add tracks to.
 
-IMPORTANT: This identifies "single-playlist artists" - artists that appear in only one
-playlist in your library (excluding parent playlists). When such artists' tracks are
-found in the 'new' playlist, they are automatically routed to the playlist where
+IMPORTANT: This identifies "single-playlist artists" - artists that appear in only one 
+playlist in your library (excluding parent playlists). When such artists' tracks are 
+found in the 'new' playlist, they are automatically routed to the playlist where 
 that artist is uniquely curated.
 """
 
+import json
 import os
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple, Optional
-
-import yaml
 
 from common.config import get_config_value
 from common.spotify_utils import initialize_spotify_client, spotify_api_call_with_retry
@@ -32,48 +31,45 @@ from common.flow_character_utils import extract_flow_characters, is_parent_playl
 
 def load_playlist_folders() -> Dict[str, List[str]]:
     """
-    Load the playlist folder structure from data/playlist_folders.yaml
-
+    Load the playlist folder structure from data/playlist_folders.json
+    
     Returns:
-        Dictionary mapping folder names to lists of playlist IDs
+        Dictionary mapping folder names to lists of playlist filenames
     """
-    folder_path = os.path.join(os.path.dirname(__file__), "../../../data/playlist_folders.yaml")
-
+    folder_path = os.path.join(os.path.dirname(__file__), "../../../data/playlist_folders.json")
+    
     try:
         with open(folder_path, 'r', encoding='utf-8') as f:
-            raw = yaml.safe_load(f)
-            # YAML loader returns folder -> list of IDs (comments are stripped)
-            result: Dict[str, List[str]] = {}
-            for folder_name, items in (raw or {}).items():
-                result[folder_name] = list(items) if items else []
-            return result
+            return json.load(f)
     except FileNotFoundError:
         print(f"Warning: Playlist folders file not found at {folder_path}")
         return {}
-    except yaml.YAMLError as e:
-        print(f"Error parsing playlist folders YAML: {e}")
+    except json.JSONDecodeError as e:
+        print(f"Error parsing playlist folders JSON: {e}")
         return {}
 
 
-def get_playlist_folder_mapping(playlists_dict: Dict[str, Dict],
+def get_playlist_folder_mapping(playlists_dict: Dict[str, Dict], 
                                playlist_folders: Dict[str, List[str]]) -> Dict[str, str]:
     """
-    Create a mapping from playlist IDs to their folder names.
-
+    Create a mapping from playlist names to their folder names.
+    
     Args:
-        playlists_dict: Dictionary of playlist data (unused, kept for compatibility)
-        playlist_folders: Dictionary mapping folder names to playlist IDs
-
+        playlists_dict: Dictionary of playlist data
+        playlist_folders: Dictionary mapping folder names to playlist filenames
+        
     Returns:
-        Dictionary mapping playlist IDs to folder names
+        Dictionary mapping playlist names to folder names
     """
     playlist_to_folder = {}
-
-    # Build reverse mapping from playlist ID to folder name
-    for folder_name, playlist_ids in playlist_folders.items():
-        for playlist_id in playlist_ids:
-            playlist_to_folder[playlist_id] = folder_name
-
+    
+    # Build reverse mapping from playlist filename to folder name
+    for folder_name, playlist_files in playlist_folders.items():
+        for playlist_file in playlist_files:
+            # Remove .json extension to get playlist name
+            playlist_name = playlist_file.replace('.json', '')
+            playlist_to_folder[playlist_name] = folder_name
+    
     return playlist_to_folder
 
 
@@ -273,7 +269,7 @@ def process_single_artist_downflow(sp, playlists_dict: Dict[str, Dict],
         source_playlist_id: ID of the source playlist
         single_playlist_artists: Set of artist IDs that appear in only one playlist
         artist_to_playlists: Mapping of artist_id to set of playlist_ids
-        playlist_to_folder: Mapping from playlist IDs to folder names
+        playlist_to_folder: Mapping from playlist names to folder names
         
     Returns:
         Dictionary with processing statistics
@@ -346,7 +342,7 @@ def process_single_artist_downflow(sp, playlists_dict: Dict[str, Dict],
                 playlists_updated += 1
                 
                 # Find and add to folder playlist if it exists
-                folder_name = playlist_to_folder.get(target_playlist_id)
+                folder_name = playlist_to_folder.get(target_playlist_name)
                 if folder_name:
                     folder_playlist_id = find_playlist_by_name(playlists_dict, folder_name)
                     if folder_playlist_id:
