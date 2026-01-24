@@ -12,7 +12,7 @@ FOLDER_PLAYLIST_PREFIX = "📁"  # Prefix for folder playlists (e.g., "📁 Hous
 UNCLASSIFIED_PLAYLIST_NAME = "Unclassified"
 STAGING_PLAYLIST_NAME = "New"  # Default staging playlist name
 
-# Genre folder names (must match data/playlist_folders.json)
+# Genre folder names (must match data/playlist_folders.yaml)
 GENRE_FOLDERS = [
     "House",
     "Electronic",
